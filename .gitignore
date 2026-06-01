@@ -1,0 +1,26 @@
+# Rust
+/target/
+**/target/
+Cargo.lock        # workspace is a set of apps+libs; keep lockfile out until we ship a binary crate of record
+*.rs.bk
+
+# Swift / Xcode
+.build/
+*.xcuserstate
+xcuserdata/
+DerivedData/
+*.xcframework      # generated from the Rust core; rebuilt by `make ios`
+
+# WASM build output
+/wasm/pkg/
+
+# macOS
+.DS_Store
+
+# editors
+.idea/
+.vscode/
+*.swp
+
+# the original demo archive — the source is unpacked under prototype/ instead
+maak-lang-interactive-demo.zip
