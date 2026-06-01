@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		B1B1B1B1B1B1B1B1B1B1B1B1 /* SchildpadFFI.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = D1D1D1D1D1D1D1D1D1D1D1D1 /* SchildpadFFI.xcframework */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		902F7EF42FCDAC5D002B2340 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -24,6 +28,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		D1D1D1D1D1D1D1D1D1D1D1D1 /* SchildpadFFI.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = SchildpadFFI.xcframework; path = "../SchildpadFFI/SchildpadFFI.xcframework"; sourceTree = "<group>"; };
 		902F7EE22FCDAC5B002B2340 /* Maak.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Maak.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		902F7EF32FCDAC5D002B2340 /* MaakTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MaakTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		902F7EFD2FCDAC5D002B2340 /* MaakUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MaakUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -65,6 +70,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B1B1B1B1B1B1B1B1B1B1B1B1 /* SchildpadFFI.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -91,6 +97,7 @@
 				902F7EE42FCDAC5C002B2340 /* Maak */,
 				902F7EF62FCDAC5D002B2340 /* MaakTests */,
 				902F7F002FCDAC5D002B2340 /* MaakUITests */,
+				D1D1D1D1D1D1D1D1D1D1D1D1 /* SchildpadFFI.xcframework */,
 				902F7EE32FCDAC5B002B2340 /* Products */,
 			);
 			sourceTree = "<group>";
