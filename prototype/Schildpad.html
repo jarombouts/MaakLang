@@ -1,0 +1,2559 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>schildpad — speeltuin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet" />
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; font-family: 'IBM Plex Mono', monospace; }
+  #stage { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: #000; }
+  #frame { position: relative; background: #0a0a0b; overflow: hidden; box-shadow: 0 30px 90px rgba(0,0,0,.7); }
+  textarea::selection { background: rgba(92,214,240,.25); }
+  ::-webkit-scrollbar { width: 9px; height: 9px; }
+  ::-webkit-scrollbar-thumb { background: #23262a; border-radius: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  @keyframes sp-blink { 0%,50% { opacity: 1; } 50.01%,100% { opacity: .25; } }
+  button { font-family: 'IBM Plex Mono', monospace; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+/* schildpad-font.js
+ * An authored 8x8 bitmap face for the framebuffer glyph layer.
+ * Glyphs are drawn on a 5-wide x 7-tall cell inside the 8x8 box (1px right/bottom gutter),
+ * which keeps a one-pixel breathing gap between characters and a baseline that aligns.
+ * Lowercase maps to uppercase (the canvas font is a single case, like the machines it nods to).
+ *
+ * Variants (the "font character" the user wants to explore) are DERIVED from one base:
+ *   regular  - the authored glyphs
+ *   vet      - "bold": dilate one pixel to the right (heavier ink)
+ *   rond     - "rounded": knock off lone convex corners so glyphs read softer
+ *
+ * window.SchildpadFont.get(variant) -> { [char]: Uint8Array(8) }, each byte one row, bit7=leftmost col.
+ */
+(function () {
+  // '#' = ink, anything else = empty. 8 rows of 8 columns.
+  const G = {
+    " ": ["........","........","........","........","........","........","........","........"],
+    "A": ["..###...",".#...#..","#.....#.","#.....#.","#######.","#.....#.","#.....#.","........"],
+    "B": ["######..","#.....#.","#.....#.","######..","#.....#.","#.....#.","######..","........"],
+    "C": [".#####..","#.....#.","#.......","#.......","#.......","#.....#.",".#####..","........"],
+    "D": ["#####...","#....#..","#.....#.","#.....#.","#.....#.","#....#..","#####...","........"],
+    "E": ["#######.","#.......","#.......","#####...","#.......","#.......","#######.","........"],
+    "F": ["#######.","#.......","#.......","#####...","#.......","#.......","#.......","........"],
+    "G": [".#####..","#.....#.","#.......","#..####.","#.....#.","#.....#.",".#####..","........"],
+    "H": ["#.....#.","#.....#.","#.....#.","#######.","#.....#.","#.....#.","#.....#.","........"],
+    "I": [".#####..","...#....","...#....","...#....","...#....","...#....",".#####..","........"],
+    "J": ["...####.","....#...","....#...","....#...","#...#...","#...#...",".###....","........"],
+    "K": ["#....#..","#...#...","#..#....","###.....","#..#....","#...#...","#....#..","........"],
+    "L": ["#.......","#.......","#.......","#.......","#.......","#.......","#######.","........"],
+    "M": ["#.....#.","##...##.","#.#.#.#.","#..#..#.","#.....#.","#.....#.","#.....#.","........"],
+    "N": ["#.....#.","##....#.","#.#...#.","#..#..#.","#...#.#.","#....##.","#.....#.","........"],
+    "O": [".#####..","#.....#.","#.....#.","#.....#.","#.....#.","#.....#.",".#####..","........"],
+    "P": ["######..","#.....#.","#.....#.","######..","#.......","#.......","#.......","........"],
+    "Q": [".#####..","#.....#.","#.....#.","#.....#.","#..#..#.","#...#.#.",".####.#.","........"],
+    "R": ["######..","#.....#.","#.....#.","######..","#..#....","#...#...","#....#..","........"],
+    "S": [".#####..","#.....#.","#.......",".#####..",".......#","#.....#.",".#####..","........"],
+    "T": ["#######.","...#....","...#....","...#....","...#....","...#....","...#....","........"],
+    "U": ["#.....#.","#.....#.","#.....#.","#.....#.","#.....#.","#.....#.",".#####..","........"],
+    "V": ["#.....#.","#.....#.","#.....#.","#.....#.",".#...#..","..#.#...","...#....","........"],
+    "W": ["#.....#.","#.....#.","#.....#.","#..#..#.","#.#.#.#.","##...##.","#.....#.","........"],
+    "X": ["#.....#.",".#...#..","..#.#...","...#....","..#.#...",".#...#..","#.....#.","........"],
+    "Y": ["#.....#.",".#...#..","..#.#...","...#....","...#....","...#....","...#....","........"],
+    "Z": ["#######.",".....#..","....#...","...#....","..#.....",".#......","#######.","........"],
+    "0": [".#####..","#....##.","#...#.#.","#..#..#.","#.#...#.","##....#.",".#####..","........"],
+    "1": ["...#....","..##....",".#.#....","...#....","...#....","...#....",".#####..","........"],
+    "2": [".#####..","#.....#.",".....#..","...##...",".##.....","#.......","#######.","........"],
+    "3": ["#####...",".....#..","....#...","..###...","....#...",".....#..","#####...","........"],
+    "4": ["....##..","...#.#..","..#..#..",".#...#..","#######.",".....#..",".....#..","........"],
+    "5": ["#######.","#.......","#####...",".....#..",".....#..","#....#..",".####...","........"],
+    "6": ["..####..",".#......","#.......","######..","#.....#.","#.....#.",".#####..","........"],
+    "7": ["#######.",".....#..","....#...","...#....","..#.....","..#.....","..#.....","........"],
+    "8": [".#####..","#.....#.","#.....#.",".#####..","#.....#.","#.....#.",".#####..","........"],
+    "9": [".#####..","#.....#.","#.....#.",".######.",".......#",".....#..",".####...","........"],
+    ".": ["........","........","........","........","........","...##...","...##...","........"],
+    ",": ["........","........","........","........","...##...","...##...","..#.....","........"],
+    "!": ["...#....","...#....","...#....","...#....","...#....","........","...#....","........"],
+    "?": [".#####..","#.....#.",".....#..","...##...","...#....","........","...#....","........"],
+    ":": ["........","...##...","...##...","........","...##...","...##...","........","........"],
+    ";": ["........","...##...","...##...","........","...##...","...##...","..#.....","........"],
+    "-": ["........","........","........",".#####..","........","........","........","........"],
+    "+": ["........","...#....","...#....",".#####..","...#....","...#....","........","........"],
+    "=": ["........","........",".#####..","........",".#####..","........","........","........"],
+    "/": [".....#..","....#...","...#....","..#.....",".#......","#.......","........","........"],
+    "*": ["........","#..#..#.",".#.#.#..","..###...",".#.#.#..","#..#..#.","........","........"],
+    "(": ["...##...","..#.....",".#......",".#......",".#......","..#.....","...##...","........"],
+    ")": ["..##....","....#...",".....#..",".....#..",".....#..","....#...","..##....","........"],
+    "[": [".####...",".#......",".#......",".#......",".#......",".#......",".####...","........"],
+    "]": ["####....","...#....","...#....","...#....","...#....","...#....","####....","........"],
+    "'": ["...#....","...#....","...#....","........","........","........","........","........"],
+    "\"":["..#.#...","..#.#...","..#.#...","........","........","........","........","........"],
+    "<": ["....#...","...#....","..#.....",".#......","..#.....","...#....","....#...","........"],
+    ">": ["..#.....","...#....","....#...",".....#..","....#...","...#....","..#.....","........"],
+    "%": ["##...#..","##..#...","...#....","..#.....",".#......","#...##..","....##..","........"],
+    "#": [".#.#....","#####...",".#.#....","#####...",".#.#....","........","........","........"],
+  };
+
+  function rowsToBytes(rows) {
+    const out = new Uint8Array(8);
+    for (let r = 0; r < 8; r++) {
+      let b = 0;
+      const s = rows[r] || "........";
+      for (let c = 0; c < 8; c++) if (s[c] === "#") b |= (1 << (7 - c));
+      out[r] = b;
+    }
+    return out;
+  }
+
+  const BASE = {};
+  for (const k in G) BASE[k] = rowsToBytes(G[k]);
+
+  function bit(by, c) { return (by >> (7 - c)) & 1; }
+
+  function dilate(glyph) {
+    // bold: OR each row with itself shifted right one column (ink grows rightward)
+    const out = new Uint8Array(8);
+    for (let r = 0; r < 8; r++) out[r] = glyph[r] | (glyph[r] >> 1);
+    return out;
+  }
+
+  function round(glyph) {
+    // knock off lone convex corners: an ink pixel with <=1 orthogonal ink neighbour
+    const out = new Uint8Array(8);
+    for (let r = 0; r < 8; r++) out[r] = glyph[r];
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        if (!bit(glyph[r], c)) continue;
+        let n = 0;
+        if (r > 0 && bit(glyph[r - 1], c)) n++;
+        if (r < 7 && bit(glyph[r + 1], c)) n++;
+        if (c > 0 && bit(glyph[r], c - 1)) n++;
+        if (c < 7 && bit(glyph[r], c + 1)) n++;
+        if (n <= 1) out[r] &= ~(1 << (7 - c)); // clear it
+      }
+    }
+    return out;
+  }
+
+  const cache = {};
+  function get(variant) {
+    variant = variant || "regular";
+    if (cache[variant]) return cache[variant];
+    const f = {};
+    for (const k in BASE) {
+      if (variant === "vet") f[k] = dilate(BASE[k]);
+      else if (variant === "rond") f[k] = round(BASE[k]);
+      else f[k] = BASE[k];
+    }
+    cache[variant] = f;
+    return f;
+  }
+
+  window.SchildpadFont = {
+    get,
+    bit,
+    has(ch) { return BASE.hasOwnProperty(ch); },
+    // draw one glyph at logical pixel (x,y) into an ImageData-like plot(px,py) callback
+    drawChar(font, ch, x, y, plot) {
+      const up = ch.toUpperCase();
+      const g = font[up] || font["?"];
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          if (bit(g[r], c)) plot(x + c, y + r);
+        }
+      }
+    },
+  };
+})();
+
+</script>
+<script>
+/* schildpad-lang.js  —  the real little interpreter.
+ *
+ * A strict, deterministic, left-to-right pipeline language with typed-slot resolution
+ * (free word order), a tiny reserved type system, verb-bound `random`, dynamic name
+ * resolution (a-'i), and verbose patient Dutch run-time errors. See LANGUAGE.md.
+ *
+ * Exposes window.Schildpad with: vocab sets, tokenize(line), analyze(text), compile(text),
+ * and Engine (the stepping transport). The UI imports these; nothing here touches the DOM
+ * except drawing callbacks handed in via ctx.
+ */
+(function () {
+  "use strict";
+
+  // ---- vocabulary (all reserved, all Dutch) -------------------------------
+  const TYPES = new Set(["schildpad", "getal", "draairichting"]);
+  const DIRECTIONS = { links: -90, rechts: 90 };
+  const COLORS = ["rood", "groen", "blauw", "geel", "wit", "zwart", "oranje", "paars", "cyaan", "roze"];
+  const COLORSET = new Set(COLORS);
+  const VERBS = {
+    vooruit:    { slots: ["getal", "schildpad"],        sampler: { type: "getal", kind: "uniform", lo: 0, hi: 100 } },
+    achteruit:  { slots: ["getal", "schildpad"],        sampler: { type: "getal", kind: "uniform", lo: 0, hi: 100 } },
+    draai:      { slots: ["draairichting", "schildpad"], sampler: { type: "draairichting", kind: "lr" } },
+    pen:        { slots: ["kleur", "schildpad"],         sampler: null },
+    penomhoog:  { slots: ["schildpad"],                  sampler: null },
+    penomlaag:  { slots: ["schildpad"],                  sampler: null },
+  };
+  const LOOPWORDS = new Set(["herhaal", "doe", "keer"]);
+  const KEYWORDS = new Set([
+    "maak", "print", "random", "play",
+    ...Object.keys(VERBS), ...Object.keys(DIRECTIONS), ...COLORS, ...TYPES, ...LOOPWORDS,
+  ]);
+
+  // ---- lexer --------------------------------------------------------------
+  // A name may carry dynamic interpolation: a-'i  or  a-'(i+1)
+  const NAME_START = /[A-Za-z]/;
+  const NAME_CHAR = /[A-Za-z0-9_]/;
+
+  function tokenize(line) {
+    const toks = [];
+    let i = 0;
+    const n = line.length;
+    while (i < n) {
+      const ch = line[i];
+      if (ch === " " || ch === "\t") { i++; continue; }
+      const start = i;
+
+      // string literal
+      if (ch === '"') {
+        i++;
+        let val = "";
+        let closed = false;
+        while (i < n) {
+          if (line[i] === '"') { closed = true; i++; break; }
+          val += line[i]; i++;
+        }
+        toks.push({ kind: "string", value: val, text: line.slice(start, i), col: start, len: i - start, closed });
+        continue;
+      }
+      // number
+      if (/[0-9]/.test(ch)) {
+        let j = i + 1;
+        while (j < n && /[0-9.]/.test(line[j])) j++;
+        const text = line.slice(i, j);
+        toks.push({ kind: "number", value: parseFloat(text), text, col: i, len: j - i });
+        i = j; continue;
+      }
+      // operators & brackets
+      if ("+-*/=".includes(ch)) {
+        toks.push({ kind: "op", value: ch, text: ch, col: i, len: 1 });
+        i++; continue;
+      }
+      if ("()".includes(ch)) { toks.push({ kind: "paren", value: ch, text: ch, col: i, len: 1 }); i++; continue; }
+      if ("[]".includes(ch)) { toks.push({ kind: "bracket", value: ch, text: ch, col: i, len: 1 }); i++; continue; }
+
+      // identifier / name (may include dynamic - ' interpolation)
+      if (NAME_START.test(ch)) {
+        let j = i + 1;
+        while (j < n && NAME_CHAR.test(line[j])) j++;
+        // dynamic continuation: ('...) or (-'...)
+        while (j < n) {
+          if (line[j] === "'") {
+            j++; // consume '
+            if (line[j] === "(") {
+              let depth = 1; j++;
+              while (j < n && depth > 0) { if (line[j] === "(") depth++; else if (line[j] === ")") depth--; j++; }
+            } else {
+              while (j < n && NAME_CHAR.test(line[j])) j++;
+            }
+          } else if (line[j] === "-" && line[j + 1] === "'") {
+            j++; // include the hyphen, loop handles the '
+          } else break;
+        }
+        const text = line.slice(i, j);
+        const lower = text.toLowerCase();
+        let kind = "name";
+        if (lower === "maak") kind = "maak";
+        else if (lower === "print") kind = "print";
+        else if (lower === "random") kind = "random";
+        else if (lower === "play") kind = "play";
+        else if (LOOPWORDS.has(lower)) kind = "loop";
+        else if (VERBS[lower]) kind = "verb";
+        else if (DIRECTIONS.hasOwnProperty(lower)) kind = "dir";
+        else if (COLORSET.has(lower)) kind = "colour";
+        else if (TYPES.has(lower)) kind = "type";
+        toks.push({ kind, value: text, text, col: i, len: j - i, dynamic: text.includes("'") });
+        i = j; continue;
+      }
+
+      // stray character
+      toks.push({ kind: "unknown", value: ch, text: ch, col: i, len: 1 });
+      i++;
+    }
+    return toks;
+  }
+
+  // ---- gentle (Tier 1) analysis for the editor ----------------------------
+  function editDistance1(a, b) {
+    if (a === b) return false;
+    const la = a.length, lb = b.length;
+    if (Math.abs(la - lb) > 1) return false;
+    let i = 0, j = 0, edits = 0;
+    while (i < la && j < lb) {
+      if (a[i] === b[j]) { i++; j++; continue; }
+      edits++; if (edits > 1) return false;
+      if (la > lb) i++; else if (lb > la) j++; else { i++; j++; }
+    }
+    edits += (la - i) + (lb - j);
+    return edits === 1;
+  }
+  const KEYWORD_LIST = [...KEYWORDS];
+
+  // Returns per-line token arrays with a `suspect` flag for gentle feedback.
+  function analyze(text) {
+    const userNames = new Set();
+    const lines = text.split("\n");
+    // collect declared names (maak <naam> ...) so they aren't flagged as typos
+    for (const ln of lines) {
+      const t = tokenize(ln);
+      if (t[0] && t[0].kind === "maak" && t[1] && t[1].kind === "name") {
+        userNames.add(t[1].value.toLowerCase());
+      }
+    }
+    return lines.map((ln) => {
+      const toks = tokenize(ln);
+      for (const tk of toks) {
+        tk.suspect = false;
+        if (tk.kind === "string" && tk.closed === false) tk.suspect = true;
+        if (tk.kind === "unknown") tk.suspect = true;
+        if (tk.kind === "name" && !tk.dynamic) {
+          const lw = tk.value.toLowerCase();
+          if (!userNames.has(lw)) {
+            for (const kw of KEYWORD_LIST) {
+              if (editDistance1(lw, kw)) { tk.suspect = true; break; }
+            }
+          }
+        }
+      }
+      return toks;
+    });
+  }
+
+  // ---- values & environment ----------------------------------------------
+  function val(type, value) { return { type, value }; }
+  function fmtNum(x) {
+    if (typeof x !== "number") return String(x);
+    if (Number.isInteger(x)) return String(x);
+    return String(Math.round(x * 100) / 100);
+  }
+
+  // ---- errors -------------------------------------------------------------
+  function err(line, message) { const e = new Error(message); e.schildpad = true; e.line = line; return e; }
+
+  // ---- dynamic name resolution -------------------------------------------
+  // "a-'i" -> literal "a-" + str(value of i);  "a-'(i+1)" -> "a-" + str(eval(i+1))
+  function resolveName(raw, env, line) {
+    if (!raw.includes("'")) return { name: raw, built: false };
+    const parts = raw.split("'");
+    let name = parts[0];
+    const pieces = [parts[0]];
+    for (let k = 1; k < parts.length; k++) {
+      let seg = parts[k], expr, rest = "";
+      if (seg.startsWith("(")) {
+        const close = seg.indexOf(")");
+        expr = seg.slice(1, close);
+        rest = seg.slice(close + 1);
+      } else {
+        const m = seg.match(/^[A-Za-z0-9_]+/);
+        expr = m ? m[0] : "";
+        rest = seg.slice(expr.length);
+      }
+      const v = evalExpr(tokenize(expr), env, line);
+      name += fmtNum(v.value) + rest;
+      pieces.push(expr, rest);
+    }
+    return { name, built: true, raw };
+  }
+
+  // ---- expression evaluation (infix, normal precedence) -------------------
+  function evalExpr(toks, env, line) {
+    let pos = 0;
+    function peek() { return toks[pos]; }
+    function next() { return toks[pos++]; }
+    function parseExpr() { return parseAdd(); }
+    function parseAdd() {
+      let left = parseMul();
+      while (peek() && peek().kind === "op" && (peek().value === "+" || peek().value === "-")) {
+        const op = next().value;
+        const right = parseMul();
+        left = applyOp(op, left, right);
+      }
+      return left;
+    }
+    function parseMul() {
+      let left = parsePrimary();
+      while (peek() && peek().kind === "op" && (peek().value === "*" || peek().value === "/")) {
+        const op = next().value;
+        const right = parsePrimary();
+        left = applyOp(op, left, right);
+      }
+      return left;
+    }
+    function parsePrimary() {
+      const tk = peek();
+      if (!tk) throw err(line, "ik verwachtte hier nog een getal of een naam, maar de regel hield op.");
+      if (tk.kind === "paren" && tk.value === "(") {
+        next();
+        const v = parseExpr();
+        if (peek() && peek().kind === "paren" && peek().value === ")") next();
+        return v;
+      }
+      if (tk.kind === "op" && tk.value === "-") { next(); const v = parsePrimary(); return val("getal", -toNum(v, line)); }
+      if (tk.kind === "number") { next(); return val("getal", tk.value); }
+      if (tk.kind === "string") { next(); return val("string", tk.value); }
+      if (tk.kind === "dir") { next(); return val("draairichting", DIRECTIONS[tk.value.toLowerCase()]); }
+      if (tk.kind === "colour") { next(); return val("kleur", tk.value.toLowerCase()); }
+      if (tk.kind === "random") { throw err(line, "random waarvan? ik kan alleen willekeurig kiezen als er een werkwoord voor staat dat weet waaruit het mag kiezen, zoals 'vooruit random' of 'draai random'."); }
+      if (tk.kind === "name") {
+        next();
+        const r = resolveName(tk.value, env, line);
+        const b = env.get(r.name.toLowerCase());
+        if (!b) {
+          if (r.built) throw err(line, `ik probeerde '${r.name}' te vinden, opgebouwd uit '${r.raw.split("'")[0]}' en de waarde van ${r.raw.split("'").slice(1).join("'")}, maar die bestaat niet.`);
+          throw err(line, `ik ken geen '${r.name}'. misschien moet je die eerst maken met 'maak ${r.name}'?`);
+        }
+        if (b.type === "nil") throw err(line, `'${r.name}' bestaat wel, maar had op dat moment de waarde nil. ik weet niet hoe ik daar mee moet rekenen.`);
+        return b;
+      }
+      throw err(line, `ik begreep '${tk.text}' hier niet.`);
+    }
+    function toNum(v, ln) {
+      if (v.type === "getal" || v.type === "draairichting") return v.value;
+      throw err(ln, `ik wilde hier een getal, maar kreeg een ${typeNL(v.type)}.`);
+    }
+    function applyOp(op, a, b) {
+      if (op === "+" && (a.type === "string" || b.type === "string")) {
+        return val("string", strOf(a) + strOf(b));
+      }
+      const x = toNum(a, line), y = toNum(b, line);
+      if (op === "+") return val("getal", x + y);
+      if (op === "-") return val("getal", x - y);
+      if (op === "*") return val("getal", x * y);
+      if (op === "/") { if (y === 0) throw err(line, "ik kan niet door nul delen."); return val("getal", x / y); }
+      throw err(line, `onbekende rekenstap '${op}'.`);
+    }
+    const result = parseExpr();
+    return result;
+  }
+  function strOf(v) {
+    if (v.type === "string") return v.value;
+    if (v.type === "getal") return fmtNum(v.value);
+    if (v.type === "draairichting") return fmtNum(v.value);
+    if (v.type === "schildpad") return v.value.name;
+    return "nil";
+  }
+  function typeNL(t) {
+    return ({ schildpad: "schildpad", getal: "getal", draairichting: "draairichting", kleur: "kleur", string: "tekst", nil: "nil" })[t] || t;
+  }
+
+  // ---- statement compilation ---------------------------------------------
+  // Build a tree of statement nodes from source text, using indentation for blocks.
+  function compile(text) {
+    const rawLines = text.split("\n");
+    const lines = rawLines.map((s, idx) => ({ src: s, indent: s.match(/^[ \t]*/)[0].length, lineNo: idx + 1, trimmed: s.trim() }));
+
+    let p = 0;
+    function parseBlock(minIndent) {
+      const out = [];
+      while (p < lines.length) {
+        const ln = lines[p];
+        if (ln.trimmed === "" || ln.trimmed === "[" || ln.trimmed === "]") { p++; continue; }
+        if (ln.indent < minIndent) break;
+        p++;
+        const toks = tokenize(ln.src).filter((t) => t.kind !== "bracket");
+        const first = toks[0];
+        if (first && first.kind === "loop") {
+          // loop header: herhaal <n> | doe <n> keer | doe
+          const node = parseLoopHeader(toks, ln);
+          // body = following lines with greater indent (or bracketed block follows)
+          const childIndent = (lines[p] ? lines[p].indent : ln.indent + 1);
+          node.body = parseBlock(Math.max(childIndent, ln.indent + 1));
+          out.push(node);
+        } else {
+          out.push({ kind: "simple", line: ln.lineNo, toks, src: ln.trimmed });
+        }
+      }
+      return out;
+    }
+    function parseLoopHeader(toks, ln) {
+      // forms: herhaal <n> ; doe <n> keer ; doe
+      const w = toks[0].value.toLowerCase();
+      let countToks = null, unbounded = false;
+      if (w === "herhaal") {
+        countToks = toks.slice(1);
+      } else if (w === "doe") {
+        const keerIdx = toks.findIndex((t) => t.kind === "loop" && t.value.toLowerCase() === "keer");
+        if (keerIdx >= 0) countToks = toks.slice(1, keerIdx);
+        else if (toks.length === 1) unbounded = true;
+        else countToks = toks.slice(1);
+      }
+      return { kind: "loop", line: ln.lineNo, unbounded, countToks, header: ln.trimmed };
+    }
+    const program = parseBlock(0);
+    return { program };
+  }
+
+  // ---- the execution engine (transport) -----------------------------------
+  // ctx must provide: turtleFactory(name, env), draw line, plot pixel, printGlyphs, clear,
+  //                   audio(spec), markBuilt(name). The UI supplies these.
+  class Engine {
+    constructor(ctx) {
+      this.ctx = ctx;
+      this.env = new Map();
+      this.turtleOrder = [];
+      this.stack = [];
+      this.done = true;
+      this.error = null;
+    }
+
+    reset(program) {
+      this.program = program;
+      this.env = new Map();
+      this.turtleOrder = [];
+      this.stack = program ? [{ list: program, idx: 0, kind: "root" }] : [];
+      this.done = !program || program.length === 0;
+      this.error = null;
+      this.ctx.clear();
+    }
+
+    // line that will execute next (for the highlight), or null
+    currentLine() {
+      for (let s = this.stack.length - 1; s >= 0; s--) {
+        const fr = this.stack[s];
+        if (fr.idx < fr.list.length) return fr.list[fr.idx].line;
+      }
+      return null;
+    }
+
+    // execute exactly one statement; returns { line, done } or throws schildpad error
+    step() {
+      // unwind finished frames (loop bookkeeping)
+      while (this.stack.length) {
+        const fr = this.stack[this.stack.length - 1];
+        if (fr.idx < fr.list.length) break;
+        if (fr.kind === "count" && fr.reps > 0) { fr.reps--; fr.idx = 0; }
+        else if (fr.kind === "unbounded") { fr.idx = 0; if (fr.list.length === 0) { this.stack.pop(); } }
+        else this.stack.pop();
+      }
+      if (!this.stack.length) { this.done = true; return { done: true, line: null }; }
+
+      const fr = this.stack[this.stack.length - 1];
+      const node = fr.list[fr.idx];
+      fr.idx++;
+
+      if (node.kind === "loop") {
+        let count = 0;
+        if (!node.unbounded) {
+          const v = evalExpr(node.countToks, this.env, node.line);
+          count = Math.max(0, Math.floor(v.value));
+        }
+        if (node.unbounded) this.stack.push({ list: node.body, idx: 0, kind: "unbounded" });
+        else if (count > 0) this.stack.push({ list: node.body, idx: 0, kind: "count", reps: count - 1 });
+        // count 0 -> skip body
+        return { done: false, line: node.line };
+      }
+      // simple statement
+      this.execSimple(node);
+      return { done: false, line: node.line };
+    }
+
+    // run a single source line immediately against live env (the Enter / live mode)
+    runLine(src, lineNo) {
+      const toks = tokenize(src).filter((t) => t.kind !== "bracket");
+      if (toks.length === 0) return;
+      const first = toks[0];
+      if (first.kind === "loop") {
+        throw err(lineNo, "een herhaal- of doe-lus moet je met de afspeelknop of stap-knop draaien, niet los met enter.");
+      }
+      this.execSimple({ toks, line: lineNo, src });
+    }
+
+    execSimple(node) {
+      const toks = node.toks;
+      const line = node.line;
+      const env = this.env;
+      const first = toks[0];
+
+      // maak (positional)
+      if (first.kind === "maak") return this.doMaak(toks, line);
+      // print
+      if (first.kind === "print") {
+        const pexpr = toks.slice(1);
+        if (pexpr.length === 1 && pexpr[0].kind === "name") {
+          const pr = resolveName(pexpr[0].value, env, line);
+          const pb = env.get(pr.name.toLowerCase());
+          if (pb && pb.type === "nil") throw err(line, `je probeerde '${pr.name}' te printen, maar die had op dat moment de waarde nil. ik weet niet hoe ik nil moet printen.`);
+        }
+        const v = evalExpr(pexpr, env, line);
+        if (v.type === "nil") throw err(line, `je probeerde iets te printen, maar dat had op dat moment de waarde nil. ik weet niet hoe ik nil moet printen.`);
+        this.ctx.print(strOf(v));
+        return;
+      }
+      // play
+      if (first.kind === "play") return this.doPlay(toks, line);
+
+      // reassignment  naam = expr
+      if (first.kind === "name" && toks[1] && toks[1].kind === "op" && toks[1].value === "=") {
+        const r = resolveName(first.value, env, line);
+        const key = r.name.toLowerCase();
+        if (!env.has(key)) {
+          const rhs = node.src.slice(node.src.indexOf("=") + 1).trim();
+          throw err(line, `je probeerde '${rhs}' toe te kennen aan '${r.name}' op regel ${line}, maar '${r.name}' bestaat op dat moment nog niet. misschien wil je '${r.name}' eerst maken met 'maak ${r.name}'?`);
+        }
+        const v = evalExpr(toks.slice(2), env, line);
+        env.set(key, { type: v.type, value: v.value });
+        return;
+      }
+
+      // verb statement (free order)
+      const verbTok = toks.find((t) => t.kind === "verb");
+      if (verbTok) return this.doVerb(verbTok, toks, line);
+
+      // a lone name? probably the child summoning capability help; treat as error gently
+      throw err(line, `ik weet niet wat ik met '${node.src}' moet doen. een regel begint meestal met 'maak', 'print', of een werkwoord zoals 'vooruit'.`);
+    }
+
+    doMaak(toks, line) {
+      const env = this.env;
+      const nameTok = toks[1];
+      if (!nameTok || (nameTok.kind !== "name" && nameTok.kind !== "type" && nameTok.kind !== "verb")) {
+        throw err(line, "na 'maak' verwacht ik een naam, bijvoorbeeld 'maak pietje schildpad'.");
+      }
+      if (TYPES.has(nameTok.value.toLowerCase()) || VERBS[nameTok.value.toLowerCase()] || KEYWORDS.has(nameTok.value.toLowerCase())) {
+        throw err(line, `'${nameTok.value}' is een gereserveerd woord; je kunt het niet als naam gebruiken.`);
+      }
+      const r = resolveName(nameTok.value, env, line);
+      const key = r.name.toLowerCase();
+      const rest = toks.slice(2);
+
+      // maak <naam>
+      if (rest.length === 0) { env.set(key, { type: "nil", value: null, name: r.name }); return; }
+
+      // maak <naam> <type> [= expr]
+      if (rest[0].kind === "type") {
+        const t = rest[0].value.toLowerCase();
+        if (t === "schildpad") {
+          const turtle = this.summon(r.name);
+          env.set(key, { type: "schildpad", value: turtle, name: r.name });
+        } else {
+          env.set(key, { type: t, value: null, name: r.name });
+        }
+        if (rest[1] && rest[1].kind === "op" && rest[1].value === "=") {
+          const v = evalExpr(rest.slice(2), env, line);
+          const b = env.get(key);
+          if (t === "draairichting" || t === "getal") b.value = v.value;
+        }
+        return;
+      }
+      // maak <naam> = expr
+      if (rest[0].kind === "op" && rest[0].value === "=") {
+        const v = evalExpr(rest.slice(1), env, line);
+        env.set(key, { type: v.type, value: v.value, name: r.name });
+        return;
+      }
+      throw err(line, `ik begreep '${toks.map((t) => t.text).join(" ")}' niet. probeer 'maak ${r.name} schildpad' of 'maak ${r.name} = 0'.`);
+    }
+
+    summon(name) {
+      const idx = this.turtleOrder.length;
+      const turtle = { name, x: 0, y: 0, heading: 0, pen: this.ctx.defaultPen(idx), penDown: true, tint: idx, _fresh: true };
+      this.turtleOrder.push(turtle);
+      this.ctx.onSummon(turtle);
+      return turtle;
+    }
+
+    doVerb(verbTok, toks, line) {
+      const env = this.env;
+      const name = verbTok.value.toLowerCase();
+      const sig = VERBS[name];
+      const slots = {};            // type -> value
+      let hasRandom = false;
+      const exprToks = [];         // leftover tokens for the getal slot expression
+
+      for (const tk of toks) {
+        if (tk === verbTok) continue;
+        if (tk.kind === "random") { hasRandom = true; continue; }
+        if (tk.kind === "dir") { slots.draairichting = DIRECTIONS[tk.value.toLowerCase()]; continue; }
+        if (tk.kind === "colour") { slots.kleur = tk.value.toLowerCase(); continue; }
+        if (tk.kind === "name") {
+          const r = resolveName(tk.value, env, line);
+          const b = env.get(r.name.toLowerCase());
+          if (!b) {
+            if (r.built) throw err(line, `ik probeerde '${r.name}' te vinden, opgebouwd uit '${r.raw.split("'")[0]}' en de waarde van ${r.raw.split("'").slice(1).join("'")}, maar die bestaat niet.`);
+            throw err(line, `ik ken geen '${r.name}'. heb je die al gemaakt met 'maak ${r.name} schildpad'?`);
+          }
+          if (b.type === "schildpad") slots.schildpad = b.value;
+          else if (b.type === "draairichting") slots.draairichting = b.value;
+          else if (b.type === "getal") exprToks.push({ kind: "number", value: b.value, text: r.name });
+          else throw err(line, `'${r.name}' is een ${typeNL(b.type)}; daar weet '${name}' geen raad mee.`);
+          continue;
+        }
+        // numbers / operators / parens go to the arithmetic expression
+        if (tk.kind === "number" || tk.kind === "op" || tk.kind === "paren") exprToks.push(tk);
+      }
+
+      // random sampler
+      if (hasRandom) {
+        if (!sig.sampler) throw err(line, `'${name}' kan niets willekeurig kiezen. random werkt bij 'vooruit' (een afstand) en 'draai' (links of rechts).`);
+        if (sig.sampler.type === "getal") slots.getal = Math.round(sig.sampler.lo + Math.random() * (sig.sampler.hi - sig.sampler.lo));
+        else if (sig.sampler.type === "draairichting") slots.draairichting = Math.random() < 0.5 ? -90 : 90;
+      } else if (exprToks.length) {
+        slots.getal = evalExpr(exprToks, env, line).value;
+      }
+
+      // verify all required slots present
+      for (const need of sig.slots) {
+        if (slots[need] === undefined) {
+          if (need === "schildpad") throw err(line, `'${name}' wil weten welke schildpad het moet besturen, maar ik zie er geen op deze regel. bijvoorbeeld: '${name === "draai" ? "draai links pietje" : name + " 50 pietje"}'.`);
+          if (need === "getal") throw err(line, `'${name}' wil een getal (een afstand), maar dat zie ik niet op deze regel. bijvoorbeeld '${name} 50 ...'.`);
+          if (need === "draairichting") throw err(line, `'${name}' wil een richting, zoals 'links' of 'rechts'.`);
+          if (need === "kleur") throw err(line, `'${name}' wil een kleur, zoals 'rood' of 'blauw'.`);
+        }
+      }
+
+      const t = slots.schildpad;
+      if (name === "vooruit" || name === "achteruit") {
+        let d = slots.getal; if (name === "achteruit") d = -d;
+        this.ctx.move(t, d);
+      } else if (name === "draai") {
+        t.heading = (((t.heading + slots.draairichting) % 360) + 360) % 360;
+        this.ctx.onTurn(t);
+      } else if (name === "pen") {
+        t.pen = this.ctx.colorOf(slots.kleur); t.penName = slots.kleur; t.penDown = true;
+        this.ctx.onTurn(t);
+      } else if (name === "penomhoog") { t.penDown = false; this.ctx.onTurn(t); }
+      else if (name === "penomlaag") { t.penDown = true; this.ctx.onTurn(t); }
+    }
+
+    doPlay(toks, line) {
+      const rest = toks.slice(1);
+      if (rest.length === 1 && rest[0].kind === "number") { this.ctx.audio({ kind: "freq", freq: rest[0].value }); return; }
+      const notes = [];
+      const NOTE = { a: 440, b: 493.88, c: 261.63, d: 293.66, e: 329.63, f: 349.23, g: 392.0 };
+      for (const tk of rest) {
+        if (tk.kind === "number") notes.push(tk.value);
+        else if (tk.kind === "name" && NOTE[tk.value.toLowerCase()[0]]) notes.push(NOTE[tk.value.toLowerCase()[0]]);
+      }
+      if (!notes.length) throw err(line, "play wil een toonhoogte (zoals 'play 440') of noten (zoals 'play a b c d').");
+      this.ctx.audio({ kind: "seq", notes });
+    }
+  }
+
+  window.Schildpad = {
+    TYPES, DIRECTIONS, COLORS, VERBS, KEYWORDS,
+    tokenize, analyze, compile, Engine, fmtNum, resolveName,
+  };
+})();
+
+</script>
+<script>
+/* schildpad-turtle.js — the payoff surface.
+ * A logical pixel framebuffer (320 x H), chunky integer-scaled, no smoothing.
+ * Persistent draw layer (pen lines + printed glyphs) + a sprite layer (turtles).
+ * Pen lines wrap on a torus by default. Glyphs are the authored 8x8 bitmap face.
+ *
+ * window.SchildpadFB.create({drawCanvas, spriteCanvas, cols, rows}) -> framebuffer object
+ * window.SchildpadFB.NAMED  -> the named in-canvas colour palette (Dutch)
+ * window.SchildpadFB.TINTS  -> per-turtle tints (creation order)
+ */
+(function () {
+  "use strict";
+
+  // Punchy named colours that read as single chunky pixels on black.
+  const NAMED = {
+    rood:   "#ff3b30",
+    groen:  "#34e24b",
+    blauw:  "#3a86ff",
+    geel:   "#ffd23a",
+    wit:    "#ffffff",
+    zwart:  "#000000",
+    oranje: "#ff8a2a",
+    paars:  "#b15cff",
+    cyaan:  "#2ee6e6",
+    roze:   "#ff6ec7",
+  };
+  // Turtle body tints by creation order — distinct at a glance.
+  const TINTS = ["#34e24b", "#ff8a2a", "#3a86ff", "#ff6ec7", "#ffd23a", "#2ee6e6", "#b15cff", "#ff3b30"];
+
+  function create(opts) {
+    const { drawCanvas, spriteCanvas, cols, rows } = opts;
+    const W = cols * 8;          // logical width (320 for 40 cols)
+    const H = rows * 8;          // logical height
+    drawCanvas.width = W; drawCanvas.height = H;
+    spriteCanvas.width = W; spriteCanvas.height = H;
+    const dctx = drawCanvas.getContext("2d");
+    const sctx = spriteCanvas.getContext("2d");
+    dctx.imageSmoothingEnabled = false; sctx.imageSmoothingEnabled = false;
+
+    const fb = {
+      W, H, cols, rows,
+      cursorCol: 0, cursorRow: 0,
+      fontVariant: "regular",
+      wrapMode: "wrap",
+      _font: window.SchildpadFont.get("regular"),
+    };
+
+    function wrapX(x) { return ((x % W) + W) % W; }
+    function wrapY(y) { return ((y % H) + H) % H; }
+
+    fb.setFont = function (variant) { fb.fontVariant = variant; fb._font = window.SchildpadFont.get(variant); };
+
+    fb.clear = function () {
+      dctx.fillStyle = "#000000"; dctx.fillRect(0, 0, W, H);
+      sctx.clearRect(0, 0, W, H);
+      fb.cursorCol = 0; fb.cursorRow = 0;
+    };
+
+    fb.plot = function (x, y, color) {
+      const px = Math.round(x), py = Math.round(y);
+      const wx = fb.wrapMode === "wrap" ? wrapX(px) : px;
+      const wy = fb.wrapMode === "wrap" ? wrapY(py) : py;
+      if (fb.wrapMode !== "wrap" && (wx < 0 || wx >= W || wy < 0 || wy >= H)) return;
+      dctx.fillStyle = color;
+      dctx.fillRect(wx, wy, 1, 1);
+    };
+
+    // move a turtle forward `dist` logical px along its heading, drawing if pen down
+    fb.move = function (turtle, dist) {
+      const rad = (turtle.heading * Math.PI) / 180;
+      const dx = Math.cos(rad) * dist, dy = Math.sin(rad) * dist;
+      const x0 = turtle.x, y0 = turtle.y;
+      const steps = Math.max(1, Math.ceil(Math.abs(dist)));
+      for (let i = 1; i <= steps; i++) {
+        const t = i / steps;
+        const px = x0 + dx * t, py = y0 + dy * t;
+        if (turtle.penDown) fb.plot(px, py, turtle.pen || "#ffffff");
+      }
+      turtle.x = fb.wrapMode === "wrap" ? wrapX(x0 + dx) : x0 + dx;
+      turtle.y = fb.wrapMode === "wrap" ? wrapY(y0 + dy) : y0 + dy;
+    };
+
+    // print text at the glyph cursor, advancing & wrapping the 40-col grid
+    fb.print = function (str) {
+      const font = fb._font;
+      for (const ch of String(str)) {
+        if (ch === "\n") { fb.cursorCol = 0; fb.cursorRow++; continue; }
+        const gx = fb.cursorCol * 8, gy = fb.cursorRow * 8;
+        window.SchildpadFont.drawChar(font, ch, gx, gy, (x, y) => {
+          const wx = fb.wrapMode === "wrap" ? wrapX(x) : x;
+          const wy = fb.wrapMode === "wrap" ? wrapY(y) : y;
+          dctx.fillStyle = "#ffffff";
+          dctx.fillRect(wx, wy, 1, 1);
+        });
+        fb.cursorCol++;
+        if (fb.cursorCol >= fb.cols) { fb.cursorCol = 0; fb.cursorRow++; }
+        if (fb.cursorRow >= fb.rows) fb.cursorRow = 0;
+      }
+      fb.cursorCol = 0; fb.cursorRow++;       // print is line-terminated
+      if (fb.cursorRow >= fb.rows) fb.cursorRow = 0;
+    };
+
+    fb.colorOf = function (name) { return NAMED[name] || "#ffffff"; };
+    fb.defaultPen = function (idx) { return TINTS[idx % TINTS.length]; };
+    fb.tintOf = function (idx) { return TINTS[idx % TINTS.length]; };
+
+    // ---- sprite rendering ------------------------------------------------
+    fb.renderSprites = function (turtles, spriteStyle, t) {
+      sctx.clearRect(0, 0, W, H);
+      for (const turtle of turtles) drawTurtle(sctx, turtle, fb.tintOf(turtle.tint), spriteStyle, t);
+    };
+
+    return fb;
+  }
+
+  function px(ctx, x, y, c) { ctx.fillStyle = c; ctx.fillRect(Math.round(x), Math.round(y), 1, 1); }
+  function dirUnit(deg) { const r = (deg * Math.PI) / 180; return [Math.cos(r), Math.sin(r)]; }
+
+  // three explorable sprite styles; heading shown by a nose/notch/arrow
+  function drawTurtle(ctx, turtle, tint, style, t) {
+    const cx = Math.round(turtle.x), cy = Math.round(turtle.y);
+    const [ux, uy] = dirUnit(turtle.heading);
+    const shade = darken(tint, 0.45);
+    const dark = darken(tint, 0.65);
+
+    // arrival: a single expanding chunky ring the moment a turtle is summoned
+    if (turtle._bornAt && t != null) {
+      const age = t - turtle._bornAt;
+      if (age >= 0 && age < 420) {
+        const r = 3 + (age / 420) * 8;
+        ctx.fillStyle = tint;
+        for (let a = 0; a < 360; a += 30) {
+          const rr = (a * Math.PI) / 180;
+          px(ctx, cx + Math.cos(rr) * r, cy + Math.sin(rr) * r, tint);
+        }
+      }
+    }
+
+    if (style === "pijl") {
+      // bold chevron arrowhead pointing along heading
+      const [nx, ny] = [Math.round(ux), Math.round(uy)]; // perpendicular by swap
+      const [pxx, pyy] = [-Math.round(uy), Math.round(ux)];
+      for (let i = -2; i <= 2; i++) {
+        px(ctx, cx + ux * 3 + pxx * i, cy + uy * 3 + pyy * i, tint);
+      }
+      for (let i = -1; i <= 1; i++) px(ctx, cx + ux * 2 + pxx * i, cy + uy * 2 + pyy * i, tint);
+      px(ctx, cx + ux * 4, cy + uy * 4, "#ffffff");
+      px(ctx, cx - ux, cy - uy, shade);
+      px(ctx, cx - ux * 2, cy - uy * 2, shade);
+      return;
+    }
+
+    // shared rounded body (used by 'schildpad' and 'rond')
+    const body = [
+      [-1, -2], [0, -2], [1, -2],
+      [-2, -1], [-1, -1], [0, -1], [1, -1], [2, -1],
+      [-2, 0], [-1, 0], [0, 0], [1, 0], [2, 0],
+      [-2, 1], [-1, 1], [0, 1], [1, 1], [2, 1],
+      [-1, 2], [0, 2], [1, 2],
+    ];
+    for (const [dx, dy] of body) px(ctx, cx + dx, cy + dy, tint);
+
+    if (style === "rond") {
+      // smooth dome + bright directional notch
+      px(ctx, cx, cy, darken(tint, 0.3));
+      const nxp = cx + Math.round(ux * 2), nyp = cy + Math.round(uy * 2);
+      px(ctx, nxp, nyp, "#ffffff");
+      px(ctx, cx + Math.round(ux * 3), cy + Math.round(uy * 3), tint);
+      return;
+    }
+
+    // default: 'schildpad' — shell pattern + four feet + a head/nose poking forward
+    px(ctx, cx, cy, shade);
+    px(ctx, cx - 1, cy - 1, shade); px(ctx, cx + 1, cy + 1, shade);
+    px(ctx, cx + 1, cy - 1, dark); px(ctx, cx - 1, cy + 1, dark);
+    // feet at the four diagonals
+    const feet = [[-2, -2], [2, -2], [-2, 2], [2, 2]];
+    for (const [dx, dy] of feet) px(ctx, cx + dx, cy + dy, tint);
+    // head/nose: two pixels forward + a white tip = the heading indicator
+    const hx = cx + Math.round(ux * 3), hy = cy + Math.round(uy * 3);
+    const hx2 = cx + Math.round(ux * 2), hy2 = cy + Math.round(uy * 2);
+    px(ctx, hx2, hy2, tint);
+    px(ctx, hx, hy, "#ffffff");
+    // little tail opposite heading
+    px(ctx, cx - Math.round(ux * 3), cy - Math.round(uy * 3), shade);
+  }
+
+  function darken(hex, f) {
+    const h = hex.replace("#", "");
+    const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+    const d = (v) => Math.max(0, Math.round(v * (1 - f)));
+    return `rgb(${d(r)},${d(g)},${d(b)})`;
+  }
+
+  window.SchildpadFB = { create, NAMED, TINTS };
+})();
+
+</script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script type="text/babel">
+
+/* BEGIN USAGE */
+// tweaks-panel.jsx
+// Reusable Tweaks shell + form-control helpers.
+// Exports (to window): useTweaks, TweaksPanel, TweakSection, TweakRow, TweakSlider,
+//   TweakToggle, TweakRadio, TweakSelect, TweakText, TweakNumber, TweakColor, TweakButton.
+//
+// Owns the host protocol (listens for __activate_edit_mode / __deactivate_edit_mode,
+// posts __edit_mode_available / __edit_mode_set_keys / __edit_mode_dismissed) so
+// individual prototypes don't re-roll it. Ships a consistent set of controls so you
+// don't hand-draw <input type="range">, segmented radios, steppers, etc.
+//
+// Usage (in an HTML file that loads React + Babel):
+//
+//   const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+//     "primaryColor": "#D97757",
+//     "palette": ["#D97757", "#29261b", "#f6f4ef"],
+//     "fontSize": 16,
+//     "density": "regular",
+//     "dark": false
+//   }/*EDITMODE-END*/;
+//
+//   function App() {
+//     const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+//     return (
+//       <div style={{ fontSize: t.fontSize, color: t.primaryColor }}>
+//         Hello
+//         <TweaksPanel>
+//           <TweakSection label="Typography" />
+//           <TweakSlider label="Font size" value={t.fontSize} min={10} max={32} unit="px"
+//                        onChange={(v) => setTweak('fontSize', v)} />
+//           <TweakRadio  label="Density" value={t.density}
+//                        options={['compact', 'regular', 'comfy']}
+//                        onChange={(v) => setTweak('density', v)} />
+//           <TweakSection label="Theme" />
+//           <TweakColor  label="Primary" value={t.primaryColor}
+//                        options={['#D97757', '#2A6FDB', '#1F8A5B', '#7A5AE0']}
+//                        onChange={(v) => setTweak('primaryColor', v)} />
+//           <TweakColor  label="Palette" value={t.palette}
+//                        options={[['#D97757', '#29261b', '#f6f4ef'],
+//                                  ['#475569', '#0f172a', '#f1f5f9']]}
+//                        onChange={(v) => setTweak('palette', v)} />
+//           <TweakToggle label="Dark mode" value={t.dark}
+//                        onChange={(v) => setTweak('dark', v)} />
+//         </TweaksPanel>
+//       </div>
+//     );
+//   }
+//
+// TweakRadio is the segmented control for 2–3 short options (auto-falls-back to
+// TweakSelect past ~16/~10 chars per label); reach for TweakSelect directly when
+// options are many or long. For color tweaks always curate 3-4 options rather than
+// a free picker; an option can also be a whole 2–5 color palette (the stored value
+// is the array). The Tweak* controls are a floor, not a ceiling — build custom
+// controls inside the panel if a tweak calls for UI they don't cover.
+/* END USAGE */
+// ─────────────────────────────────────────────────────────────────────────────
+
+const __TWEAKS_STYLE = `
+  .twk-panel{position:fixed;right:16px;bottom:16px;z-index:2147483646;width:280px;
+    max-height:calc(100vh - 32px);display:flex;flex-direction:column;
+    transform:scale(var(--dc-inv-zoom,1));transform-origin:bottom right;
+    background:rgba(250,249,247,.78);color:#29261b;
+    -webkit-backdrop-filter:blur(24px) saturate(160%);backdrop-filter:blur(24px) saturate(160%);
+    border:.5px solid rgba(255,255,255,.6);border-radius:14px;
+    box-shadow:0 1px 0 rgba(255,255,255,.5) inset,0 12px 40px rgba(0,0,0,.18);
+    font:11.5px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif;overflow:hidden}
+  .twk-hd{display:flex;align-items:center;justify-content:space-between;
+    padding:10px 8px 10px 14px;cursor:move;user-select:none}
+  .twk-hd b{font-size:12px;font-weight:600;letter-spacing:.01em}
+  .twk-x{appearance:none;border:0;background:transparent;color:rgba(41,38,27,.55);
+    width:22px;height:22px;border-radius:6px;cursor:default;font-size:13px;line-height:1}
+  .twk-x:hover{background:rgba(0,0,0,.06);color:#29261b}
+  .twk-body{padding:2px 14px 14px;display:flex;flex-direction:column;gap:10px;
+    overflow-y:auto;overflow-x:hidden;min-height:0;
+    scrollbar-width:thin;scrollbar-color:rgba(0,0,0,.15) transparent}
+  .twk-body::-webkit-scrollbar{width:8px}
+  .twk-body::-webkit-scrollbar-track{background:transparent;margin:2px}
+  .twk-body::-webkit-scrollbar-thumb{background:rgba(0,0,0,.15);border-radius:4px;
+    border:2px solid transparent;background-clip:content-box}
+  .twk-body::-webkit-scrollbar-thumb:hover{background:rgba(0,0,0,.25);
+    border:2px solid transparent;background-clip:content-box}
+  .twk-row{display:flex;flex-direction:column;gap:5px}
+  .twk-row-h{flex-direction:row;align-items:center;justify-content:space-between;gap:10px}
+  .twk-lbl{display:flex;justify-content:space-between;align-items:baseline;
+    color:rgba(41,38,27,.72)}
+  .twk-lbl>span:first-child{font-weight:500}
+  .twk-val{color:rgba(41,38,27,.5);font-variant-numeric:tabular-nums}
+
+  .twk-sect{font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+    color:rgba(41,38,27,.45);padding:10px 0 0}
+  .twk-sect:first-child{padding-top:0}
+
+  .twk-field{appearance:none;box-sizing:border-box;width:100%;min-width:0;height:26px;padding:0 8px;
+    border:.5px solid rgba(0,0,0,.1);border-radius:7px;
+    background:rgba(255,255,255,.6);color:inherit;font:inherit;outline:none}
+  .twk-field:focus{border-color:rgba(0,0,0,.25);background:rgba(255,255,255,.85)}
+  select.twk-field{padding-right:22px;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='rgba(0,0,0,.5)' d='M0 0h10L5 6z'/></svg>");
+    background-repeat:no-repeat;background-position:right 8px center}
+
+  .twk-slider{appearance:none;-webkit-appearance:none;width:100%;height:4px;margin:6px 0;
+    border-radius:999px;background:rgba(0,0,0,.12);outline:none}
+  .twk-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
+    width:14px;height:14px;border-radius:50%;background:#fff;
+    border:.5px solid rgba(0,0,0,.12);box-shadow:0 1px 3px rgba(0,0,0,.2);cursor:default}
+  .twk-slider::-moz-range-thumb{width:14px;height:14px;border-radius:50%;
+    background:#fff;border:.5px solid rgba(0,0,0,.12);box-shadow:0 1px 3px rgba(0,0,0,.2);cursor:default}
+
+  .twk-seg{position:relative;display:flex;padding:2px;border-radius:8px;
+    background:rgba(0,0,0,.06);user-select:none}
+  .twk-seg-thumb{position:absolute;top:2px;bottom:2px;border-radius:6px;
+    background:rgba(255,255,255,.9);box-shadow:0 1px 2px rgba(0,0,0,.12);
+    transition:left .15s cubic-bezier(.3,.7,.4,1),width .15s}
+  .twk-seg.dragging .twk-seg-thumb{transition:none}
+  .twk-seg button{appearance:none;position:relative;z-index:1;flex:1;border:0;
+    background:transparent;color:inherit;font:inherit;font-weight:500;min-height:22px;
+    border-radius:6px;cursor:default;padding:4px 6px;line-height:1.2;
+    overflow-wrap:anywhere}
+
+  .twk-toggle{position:relative;width:32px;height:18px;border:0;border-radius:999px;
+    background:rgba(0,0,0,.15);transition:background .15s;cursor:default;padding:0}
+  .twk-toggle[data-on="1"]{background:#34c759}
+  .twk-toggle i{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;
+    background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .15s}
+  .twk-toggle[data-on="1"] i{transform:translateX(14px)}
+
+  .twk-num{display:flex;align-items:center;box-sizing:border-box;min-width:0;height:26px;padding:0 0 0 8px;
+    border:.5px solid rgba(0,0,0,.1);border-radius:7px;background:rgba(255,255,255,.6)}
+  .twk-num-lbl{font-weight:500;color:rgba(41,38,27,.6);cursor:ew-resize;
+    user-select:none;padding-right:8px}
+  .twk-num input{flex:1;min-width:0;height:100%;border:0;background:transparent;
+    font:inherit;font-variant-numeric:tabular-nums;text-align:right;padding:0 8px 0 0;
+    outline:none;color:inherit;-moz-appearance:textfield}
+  .twk-num input::-webkit-inner-spin-button,.twk-num input::-webkit-outer-spin-button{
+    -webkit-appearance:none;margin:0}
+  .twk-num-unit{padding-right:8px;color:rgba(41,38,27,.45)}
+
+  .twk-btn{appearance:none;height:26px;padding:0 12px;border:0;border-radius:7px;
+    background:rgba(0,0,0,.78);color:#fff;font:inherit;font-weight:500;cursor:default}
+  .twk-btn:hover{background:rgba(0,0,0,.88)}
+  .twk-btn.secondary{background:rgba(0,0,0,.06);color:inherit}
+  .twk-btn.secondary:hover{background:rgba(0,0,0,.1)}
+
+  .twk-swatch{appearance:none;-webkit-appearance:none;width:56px;height:22px;
+    border:.5px solid rgba(0,0,0,.1);border-radius:6px;padding:0;cursor:default;
+    background:transparent;flex-shrink:0}
+  .twk-swatch::-webkit-color-swatch-wrapper{padding:0}
+  .twk-swatch::-webkit-color-swatch{border:0;border-radius:5.5px}
+  .twk-swatch::-moz-color-swatch{border:0;border-radius:5.5px}
+
+  .twk-chips{display:flex;gap:6px}
+  .twk-chip{position:relative;appearance:none;flex:1;min-width:0;height:46px;
+    padding:0;border:0;border-radius:6px;overflow:hidden;cursor:default;
+    box-shadow:0 0 0 .5px rgba(0,0,0,.12),0 1px 2px rgba(0,0,0,.06);
+    transition:transform .12s cubic-bezier(.3,.7,.4,1),box-shadow .12s}
+  .twk-chip:hover{transform:translateY(-1px);
+    box-shadow:0 0 0 .5px rgba(0,0,0,.18),0 4px 10px rgba(0,0,0,.12)}
+  .twk-chip[data-on="1"]{box-shadow:0 0 0 1.5px rgba(0,0,0,.85),
+    0 2px 6px rgba(0,0,0,.15)}
+  .twk-chip>span{position:absolute;top:0;bottom:0;right:0;width:34%;
+    display:flex;flex-direction:column;box-shadow:-1px 0 0 rgba(0,0,0,.1)}
+  .twk-chip>span>i{flex:1;box-shadow:0 -1px 0 rgba(0,0,0,.1)}
+  .twk-chip>span>i:first-child{box-shadow:none}
+  .twk-chip svg{position:absolute;top:6px;left:6px;width:13px;height:13px;
+    filter:drop-shadow(0 1px 1px rgba(0,0,0,.3))}
+`;
+
+// ── useTweaks ───────────────────────────────────────────────────────────────
+// Single source of truth for tweak values. setTweak persists via the host
+// (__edit_mode_set_keys → host rewrites the EDITMODE block on disk).
+function useTweaks(defaults) {
+  const [values, setValues] = React.useState(defaults);
+  // Accepts either setTweak('key', value) or setTweak({ key: value, ... }) so a
+  // useState-style call doesn't write a "[object Object]" key into the persisted
+  // JSON block.
+  const setTweak = React.useCallback((keyOrEdits, val) => {
+    const edits = typeof keyOrEdits === 'object' && keyOrEdits !== null
+      ? keyOrEdits : { [keyOrEdits]: val };
+    setValues((prev) => ({ ...prev, ...edits }));
+    window.parent.postMessage({ type: '__edit_mode_set_keys', edits }, '*');
+    // Same-window signal so in-page listeners (deck-stage rail thumbnails)
+    // can react — the parent message only reaches the host, not peers.
+    window.dispatchEvent(new CustomEvent('tweakchange', { detail: edits }));
+  }, []);
+  return [values, setTweak];
+}
+
+// ── TweaksPanel ─────────────────────────────────────────────────────────────
+// Floating shell. Registers the protocol listener BEFORE announcing
+// availability — if the announce ran first, the host's activate could land
+// before our handler exists and the toolbar toggle would silently no-op.
+// The close button posts __edit_mode_dismissed so the host's toolbar toggle
+// flips off in lockstep; the host echoes __deactivate_edit_mode back which
+// is what actually hides the panel.
+function TweaksPanel({ title = 'Tweaks', children }) {
+  const [open, setOpen] = React.useState(false);
+  const dragRef = React.useRef(null);
+  const offsetRef = React.useRef({ x: 16, y: 16 });
+  const PAD = 16;
+
+  const clampToViewport = React.useCallback(() => {
+    const panel = dragRef.current;
+    if (!panel) return;
+    const w = panel.offsetWidth, h = panel.offsetHeight;
+    const maxRight = Math.max(PAD, window.innerWidth - w - PAD);
+    const maxBottom = Math.max(PAD, window.innerHeight - h - PAD);
+    offsetRef.current = {
+      x: Math.min(maxRight, Math.max(PAD, offsetRef.current.x)),
+      y: Math.min(maxBottom, Math.max(PAD, offsetRef.current.y)),
+    };
+    panel.style.right = offsetRef.current.x + 'px';
+    panel.style.bottom = offsetRef.current.y + 'px';
+  }, []);
+
+  React.useEffect(() => {
+    if (!open) return;
+    clampToViewport();
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', clampToViewport);
+      return () => window.removeEventListener('resize', clampToViewport);
+    }
+    const ro = new ResizeObserver(clampToViewport);
+    ro.observe(document.documentElement);
+    return () => ro.disconnect();
+  }, [open, clampToViewport]);
+
+  React.useEffect(() => {
+    const onMsg = (e) => {
+      const t = e?.data?.type;
+      if (t === '__activate_edit_mode') setOpen(true);
+      else if (t === '__deactivate_edit_mode') setOpen(false);
+    };
+    window.addEventListener('message', onMsg);
+    window.parent.postMessage({ type: '__edit_mode_available' }, '*');
+    return () => window.removeEventListener('message', onMsg);
+  }, []);
+
+  const dismiss = () => {
+    setOpen(false);
+    window.parent.postMessage({ type: '__edit_mode_dismissed' }, '*');
+  };
+
+  const onDragStart = (e) => {
+    const panel = dragRef.current;
+    if (!panel) return;
+    const r = panel.getBoundingClientRect();
+    const sx = e.clientX, sy = e.clientY;
+    const startRight = window.innerWidth - r.right;
+    const startBottom = window.innerHeight - r.bottom;
+    const move = (ev) => {
+      offsetRef.current = {
+        x: startRight - (ev.clientX - sx),
+        y: startBottom - (ev.clientY - sy),
+      };
+      clampToViewport();
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  };
+
+  if (!open) return null;
+  return (
+    <>
+      <style>{__TWEAKS_STYLE}</style>
+      <div ref={dragRef} className="twk-panel" data-omelette-chrome=""
+           style={{ right: offsetRef.current.x, bottom: offsetRef.current.y }}>
+        <div className="twk-hd" onMouseDown={onDragStart}>
+          <b>{title}</b>
+          <button className="twk-x" aria-label="Close tweaks"
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={dismiss}>✕</button>
+        </div>
+        <div className="twk-body">
+          {children}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ── Layout helpers ──────────────────────────────────────────────────────────
+
+function TweakSection({ label, children }) {
+  return (
+    <>
+      <div className="twk-sect">{label}</div>
+      {children}
+    </>
+  );
+}
+
+function TweakRow({ label, value, children, inline = false }) {
+  return (
+    <div className={inline ? 'twk-row twk-row-h' : 'twk-row'}>
+      <div className="twk-lbl">
+        <span>{label}</span>
+        {value != null && <span className="twk-val">{value}</span>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// ── Controls ────────────────────────────────────────────────────────────────
+
+function TweakSlider({ label, value, min = 0, max = 100, step = 1, unit = '', onChange }) {
+  return (
+    <TweakRow label={label} value={`${value}${unit}`}>
+      <input type="range" className="twk-slider" min={min} max={max} step={step}
+             value={value} onChange={(e) => onChange(Number(e.target.value))} />
+    </TweakRow>
+  );
+}
+
+function TweakToggle({ label, value, onChange }) {
+  return (
+    <div className="twk-row twk-row-h">
+      <div className="twk-lbl"><span>{label}</span></div>
+      <button type="button" className="twk-toggle" data-on={value ? '1' : '0'}
+              role="switch" aria-checked={!!value}
+              onClick={() => onChange(!value)}><i /></button>
+    </div>
+  );
+}
+
+function TweakRadio({ label, value, options, onChange }) {
+  const trackRef = React.useRef(null);
+  const [dragging, setDragging] = React.useState(false);
+  // The active value is read by pointer-move handlers attached for the lifetime
+  // of a drag — ref it so a stale closure doesn't fire onChange for every move.
+  const valueRef = React.useRef(value);
+  valueRef.current = value;
+
+  // Segments wrap mid-word once per-segment width runs out. The track is
+  // ~248px (280 panel − 28 body pad − 4 seg pad), each button loses 12px
+  // to its own padding, and 11.5px system-ui averages ~6.3px/char — so 2
+  // options fit ~16 chars each, 3 fit ~10. Past that (or >3 options), fall
+  // back to a dropdown rather than wrap.
+  const labelLen = (o) => String(typeof o === 'object' ? o.label : o).length;
+  const maxLen = options.reduce((m, o) => Math.max(m, labelLen(o)), 0);
+  const fitsAsSegments = maxLen <= ({ 2: 16, 3: 10 }[options.length] ?? 0);
+  if (!fitsAsSegments) {
+    // <select> emits strings — map back to the original option value so the
+    // fallback stays type-preserving (numbers, booleans) like the segment path.
+    const resolve = (s) => {
+      const m = options.find((o) => String(typeof o === 'object' ? o.value : o) === s);
+      return m === undefined ? s : typeof m === 'object' ? m.value : m;
+    };
+    return <TweakSelect label={label} value={value} options={options}
+                        onChange={(s) => onChange(resolve(s))} />;
+  }
+  const opts = options.map((o) => (typeof o === 'object' ? o : { value: o, label: o }));
+  const idx = Math.max(0, opts.findIndex((o) => o.value === value));
+  const n = opts.length;
+
+  const segAt = (clientX) => {
+    const r = trackRef.current.getBoundingClientRect();
+    const inner = r.width - 4;
+    const i = Math.floor(((clientX - r.left - 2) / inner) * n);
+    return opts[Math.max(0, Math.min(n - 1, i))].value;
+  };
+
+  const onPointerDown = (e) => {
+    setDragging(true);
+    const v0 = segAt(e.clientX);
+    if (v0 !== valueRef.current) onChange(v0);
+    const move = (ev) => {
+      if (!trackRef.current) return;
+      const v = segAt(ev.clientX);
+      if (v !== valueRef.current) onChange(v);
+    };
+    const up = () => {
+      setDragging(false);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+
+  return (
+    <TweakRow label={label}>
+      <div ref={trackRef} role="radiogroup" onPointerDown={onPointerDown}
+           className={dragging ? 'twk-seg dragging' : 'twk-seg'}>
+        <div className="twk-seg-thumb"
+             style={{ left: `calc(2px + ${idx} * (100% - 4px) / ${n})`,
+                      width: `calc((100% - 4px) / ${n})` }} />
+        {opts.map((o) => (
+          <button key={o.value} type="button" role="radio" aria-checked={o.value === value}>
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </TweakRow>
+  );
+}
+
+function TweakSelect({ label, value, options, onChange }) {
+  return (
+    <TweakRow label={label}>
+      <select className="twk-field" value={value} onChange={(e) => onChange(e.target.value)}>
+        {options.map((o) => {
+          const v = typeof o === 'object' ? o.value : o;
+          const l = typeof o === 'object' ? o.label : o;
+          return <option key={v} value={v}>{l}</option>;
+        })}
+      </select>
+    </TweakRow>
+  );
+}
+
+function TweakText({ label, value, placeholder, onChange }) {
+  return (
+    <TweakRow label={label}>
+      <input className="twk-field" type="text" value={value} placeholder={placeholder}
+             onChange={(e) => onChange(e.target.value)} />
+    </TweakRow>
+  );
+}
+
+function TweakNumber({ label, value, min, max, step = 1, unit = '', onChange }) {
+  const clamp = (n) => {
+    if (min != null && n < min) return min;
+    if (max != null && n > max) return max;
+    return n;
+  };
+  const startRef = React.useRef({ x: 0, val: 0 });
+  const onScrubStart = (e) => {
+    e.preventDefault();
+    startRef.current = { x: e.clientX, val: value };
+    const decimals = (String(step).split('.')[1] || '').length;
+    const move = (ev) => {
+      const dx = ev.clientX - startRef.current.x;
+      const raw = startRef.current.val + dx * step;
+      const snapped = Math.round(raw / step) * step;
+      onChange(clamp(Number(snapped.toFixed(decimals))));
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+  return (
+    <div className="twk-num">
+      <span className="twk-num-lbl" onPointerDown={onScrubStart}>{label}</span>
+      <input type="number" value={value} min={min} max={max} step={step}
+             onChange={(e) => onChange(clamp(Number(e.target.value)))} />
+      {unit && <span className="twk-num-unit">{unit}</span>}
+    </div>
+  );
+}
+
+// Relative-luminance contrast pick — checkmarks drawn over a swatch need to
+// read on both #111 and #fafafa without per-option configuration. Hex input
+// only (#rgb / #rrggbb); named or rgb()/hsl() colors fall through to "light".
+function __twkIsLight(hex) {
+  const h = String(hex).replace('#', '');
+  const x = h.length === 3 ? h.replace(/./g, (c) => c + c) : h.padEnd(6, '0');
+  const n = parseInt(x.slice(0, 6), 16);
+  if (Number.isNaN(n)) return true;
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  return r * 299 + g * 587 + b * 114 > 148000;
+}
+
+const __TwkCheck = ({ light }) => (
+  <svg viewBox="0 0 14 14" aria-hidden="true">
+    <path d="M3 7.2 5.8 10 11 4.2" fill="none" strokeWidth="2.2"
+          strokeLinecap="round" strokeLinejoin="round"
+          stroke={light ? 'rgba(0,0,0,.78)' : '#fff'} />
+  </svg>
+);
+
+// TweakColor — curated color/palette picker. Each option is either a single
+// hex string or an array of 1-5 hex strings; the card adapts — a lone color
+// renders solid, a palette renders colors[0] as the hero (left ~2/3) with the
+// rest stacked in a sharp column on the right. onChange emits the
+// option in the shape it was passed (string stays string, array stays array).
+// Without options it falls back to the native color input for back-compat.
+function TweakColor({ label, value, options, onChange }) {
+  if (!options || !options.length) {
+    return (
+      <div className="twk-row twk-row-h">
+        <div className="twk-lbl"><span>{label}</span></div>
+        <input type="color" className="twk-swatch" value={value}
+               onChange={(e) => onChange(e.target.value)} />
+      </div>
+    );
+  }
+  // Native <input type=color> emits lowercase hex per the HTML spec, so
+  // compare case-insensitively. String() guards JSON.stringify(undefined),
+  // which returns the primitive undefined (no .toLowerCase).
+  const key = (o) => String(JSON.stringify(o)).toLowerCase();
+  const cur = key(value);
+  return (
+    <TweakRow label={label}>
+      <div className="twk-chips" role="radiogroup">
+        {options.map((o, i) => {
+          const colors = Array.isArray(o) ? o : [o];
+          const [hero, ...rest] = colors;
+          const sup = rest.slice(0, 4);
+          const on = key(o) === cur;
+          return (
+            <button key={i} type="button" className="twk-chip" role="radio"
+                    aria-checked={on} data-on={on ? '1' : '0'}
+                    aria-label={colors.join(', ')} title={colors.join(' · ')}
+                    style={{ background: hero }}
+                    onClick={() => onChange(o)}>
+              {sup.length > 0 && (
+                <span>
+                  {sup.map((c, j) => <i key={j} style={{ background: c }} />)}
+                </span>
+              )}
+              {on && <__TwkCheck light={__twkIsLight(hero)} />}
+            </button>
+          );
+        })}
+      </div>
+    </TweakRow>
+  );
+}
+
+function TweakButton({ label, onClick, secondary = false }) {
+  return (
+    <button type="button" className={secondary ? 'twk-btn secondary' : 'twk-btn'}
+            onClick={onClick}>{label}</button>
+  );
+}
+
+Object.assign(window, {
+  useTweaks, TweaksPanel, TweakSection, TweakRow,
+  TweakSlider, TweakToggle, TweakRadio, TweakSelect,
+  TweakText, TweakNumber, TweakColor, TweakButton,
+});
+
+</script>
+<script type="text/babel">
+/* schildpad-editor.jsx — the code pane editor.
+ * A real <textarea> (transparent ink, visible caret) layered over a syntax-highlight
+ * <pre>, a line-number gutter, and a full-width current-line band for joint attention.
+ * Gentle Tier-1 feedback = a soft dotted underline on suspect tokens. No red walls.
+ */
+
+const EDITOR_LINE_H = 30;
+const EDITOR_FONT_PX = 19;
+const EDITOR_PAD_Y = 14;
+const EDITOR_PAD_X = 16;
+
+const TOK_STYLE = {
+  maak:   { color: "#5cd6f0", fontWeight: 700 },
+  verb:   { color: "#8ec9ff" },
+  print:  { color: "#ffb86b" },
+  play:   { color: "#ffb86b" },
+  loop:   { color: "#c9a6ff", fontWeight: 600 },
+  type:   { color: "#b79bff" },
+  dir:    { color: "#9ad6a8" },
+  random: { color: "#ff9e64", fontStyle: "italic" },
+  number: { color: "#ffd23a" },
+  string: { color: "#7ee787" },
+  name:   { color: "#dbe2e8" },
+  op:     { color: "#76828d" },
+  paren:  { color: "#76828d" },
+  unknown:{ color: "#e0746c" },
+  maakkw: { color: "#5cd6f0", fontWeight: 700 },
+};
+
+function escapeHtml(s) {
+  return s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+}
+
+function HighlightedLine({ raw, toks }) {
+  const NAMED_INK = window.SchildpadFB.NAMED;
+  // rebuild the line preserving exact columns (whitespace between tokens)
+  const parts = [];
+  let prev = 0;
+  toks.forEach((tk, i) => {
+    if (tk.col > prev) parts.push(<span key={"g" + i}>{raw.slice(prev, tk.col)}</span>);
+    const base = tk.kind === "colour" ? { color: NAMED_INK[tk.value.toLowerCase()] || "#fff" } : (TOK_STYLE[tk.kind] || TOK_STYLE.name);
+    const style = { ...base };
+    if (tk.suspect) {
+      style.textDecoration = "underline dotted";
+      style.textDecorationColor = "rgba(224,116,108,.55)";
+      style.textUnderlineOffset = "4px";
+      style.opacity = 0.72;
+    }
+    parts.push(<span key={"t" + i} style={style}>{tk.text}</span>);
+    prev = tk.col + tk.len;
+  });
+  if (prev < raw.length) parts.push(<span key="tail">{raw.slice(prev)}</span>);
+  if (parts.length === 0) parts.push(<span key="empty">{"\u200b"}</span>);
+  return <div style={{ height: EDITOR_LINE_H, lineHeight: EDITOR_LINE_H + "px" }}>{parts}</div>;
+}
+
+function Editor({ code, analysis, lines, currentLine, errorLine, onChange, onEnterLine, ghost, taRef: extRef }) {
+  const innerRef = React.useRef(null);
+  const taRef = extRef || innerRef;
+  const hlRef = React.useRef(null);
+  const gutRef = React.useRef(null);
+
+  const syncScroll = () => {
+    const ta = taRef.current;
+    if (hlRef.current) { hlRef.current.scrollTop = ta.scrollTop; hlRef.current.scrollLeft = ta.scrollLeft; }
+    if (gutRef.current) gutRef.current.scrollTop = ta.scrollTop;
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      const ta = taRef.current;
+      const val = ta.value;
+      const pos = ta.selectionStart;
+      const lineStart = val.lastIndexOf("\n", pos - 1) + 1;
+      let lineEnd = val.indexOf("\n", pos);
+      if (lineEnd === -1) lineEnd = val.length;
+      const lineText = val.slice(lineStart, lineEnd);
+      const lineNo = val.slice(0, lineStart).split("\n").length;
+      if (lineText.trim()) onEnterLine && onEnterLine(lineText, lineNo);
+    }
+  };
+
+  const lineCount = Math.max(lines.length, 1);
+  const showGhost = ghost && code.length === 0;
+
+  return (
+    <div style={{ position: "relative", flex: 1, display: "flex", overflow: "hidden", background: "#0c0c0d" }}>
+      {/* gutter */}
+      <div ref={gutRef} style={{
+        width: 46, flexShrink: 0, overflow: "hidden", textAlign: "right",
+        padding: `${EDITOR_PAD_Y}px 8px ${EDITOR_PAD_Y}px 0`,
+        fontFamily: "'IBM Plex Mono', monospace", fontSize: EDITOR_FONT_PX, lineHeight: EDITOR_LINE_H + "px",
+        color: "#3c4147", userSelect: "none", borderRight: "1px solid #1b1c1e", background: "#0a0a0b",
+      }}>
+        {Array.from({ length: lineCount }, (_, i) => (
+          <div key={i} style={{
+            height: EDITOR_LINE_H,
+            color: i + 1 === currentLine ? "#5cd6f0" : (i + 1 === errorLine ? "#e0746c" : "#3c4147"),
+            fontWeight: i + 1 === currentLine ? 700 : 400,
+          }}>{i + 1}</div>
+        ))}
+      </div>
+
+      {/* code area */}
+      <div style={{ position: "relative", flex: 1, overflow: "hidden" }}>
+        {/* current-line band */}
+        {currentLine != null && (
+          <div style={{
+            position: "absolute", left: 0, right: 0,
+            top: EDITOR_PAD_Y + (currentLine - 1) * EDITOR_LINE_H,
+            height: EDITOR_LINE_H,
+            background: errorLine === currentLine ? "rgba(224,116,108,.10)" : "rgba(92,214,240,.11)",
+            borderLeft: `3px solid ${errorLine === currentLine ? "#e0746c" : "#5cd6f0"}`,
+            transform: `translateY(${-taRefScroll(taRef)}px)`,
+            pointerEvents: "none", transition: "top .08s linear",
+          }} />
+        )}
+
+        {/* highlight layer */}
+        <pre ref={hlRef} aria-hidden="true" style={{
+          position: "absolute", inset: 0, margin: 0, overflow: "hidden",
+          padding: `${EDITOR_PAD_Y}px ${EDITOR_PAD_X}px`,
+          fontFamily: "'IBM Plex Mono', monospace", fontSize: EDITOR_FONT_PX, lineHeight: EDITOR_LINE_H + "px",
+          whiteSpace: "pre", color: "#dbe2e8", pointerEvents: "none", tabSize: 2,
+        }}>
+          {analysis.map((toks, i) => <HighlightedLine key={i} raw={lines[i] || ""} toks={toks} />)}
+        </pre>
+
+        {/* ghost invitation */}
+        {showGhost && (
+          <div style={{
+            position: "absolute", top: EDITOR_PAD_Y, left: EDITOR_PAD_X,
+            fontFamily: "'IBM Plex Mono', monospace", fontSize: EDITOR_FONT_PX, lineHeight: EDITOR_LINE_H + "px",
+            color: "#2f3338", pointerEvents: "none",
+          }}>maak pietje schildpad</div>
+        )}
+
+        {/* the real textarea */}
+        <textarea
+          ref={taRef}
+          value={code}
+          spellCheck={false}
+          autoCapitalize="off" autoCorrect="off"
+          onChange={(e) => { onChange(e.target.value); }}
+          onScroll={syncScroll}
+          onKeyDown={handleKeyDown}
+          style={{
+            position: "absolute", inset: 0, width: "100%", height: "100%",
+            padding: `${EDITOR_PAD_Y}px ${EDITOR_PAD_X}px`, margin: 0, border: "none", outline: "none",
+            background: "transparent", resize: "none",
+            fontFamily: "'IBM Plex Mono', monospace", fontSize: EDITOR_FONT_PX, lineHeight: EDITOR_LINE_H + "px",
+            color: "transparent", caretColor: "#5cd6f0", whiteSpace: "pre", overflow: "auto", tabSize: 2,
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// keep the current-line band aligned with textarea scroll (read live each render)
+function taRefScroll(ref) { return ref.current ? ref.current.scrollTop : 0; }
+
+window.SchildpadEditor = { Editor, EDITOR_LINE_H };
+
+</script>
+<script type="text/babel">
+/* schildpad-chrome.jsx — transport cluster, message/help surface, status bar, on-screen keyboard. */
+
+// ---------- transport ----------------------------------------------------
+function ChunkySvg({ children, size = 30 }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" style={{ display: "block" }}>{children}</svg>;
+}
+const Icons = {
+  step: <ChunkySvg><rect x="4" y="4" width="3" height="16" fill="currentColor" /><polygon points="9,4 20,12 9,20" fill="currentColor" /></ChunkySvg>,
+  play: <ChunkySvg><polygon points="6,4 20,12 6,20" fill="currentColor" /></ChunkySvg>,
+  pause: <ChunkySvg><rect x="5" y="4" width="5" height="16" fill="currentColor" /><rect x="14" y="4" width="5" height="16" fill="currentColor" /></ChunkySvg>,
+  loop: <ChunkySvg><path d="M5 8 h9 v-3 l5 5 -5 5 v-3 H7 v4 H4 V8 z" fill="currentColor" /><rect x="4" y="14" width="3" height="6" fill="currentColor" /><path d="M19 16 h-9 v3 l-5 -5 0 0" fill="none" /><polygon points="19,16 10,16 10,13 5,18 10,23 10,20 19,20" fill="currentColor" /></ChunkySvg>,
+};
+
+function TransportButton({ icon, label, sub, active, accent, onClick }) {
+  const [hover, setHover] = React.useState(false);
+  return (
+    <button onClick={onClick} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
+      style={{
+        flex: 1, height: 64, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+        gap: 2, border: "1px solid " + (active ? accent : "#26282b"), borderRadius: 4,
+        background: active ? accent + "22" : (hover ? "#171a1c" : "#101113"),
+        color: active ? accent : "#aeb6bd", cursor: "pointer", transition: "all .08s",
+        boxShadow: active ? `inset 0 0 0 1px ${accent}` : "none", fontFamily: "'IBM Plex Mono', monospace",
+      }}>
+      <div style={{ color: active ? accent : "#cfd6dc" }}>{icon}</div>
+      <div style={{ fontSize: 11, letterSpacing: ".06em", textTransform: "uppercase", fontWeight: 600 }}>{label}</div>
+    </button>
+  );
+}
+
+function Transport({ state, speed, onSpeed, onStep, onPlay, onPause, onLoop }) {
+  const playing = state === "playing";
+  const looping = state === "looping";
+  const paused = state === "paused" || state === "error";
+  const stepping = state === "stepping";
+  const labels = { idle: "klaar", playing: "speelt af", paused: "gepauzeerd", looping: "lus draait", stepping: "stap", error: "gestopt", done: "klaar" };
+  const accent = state === "error" ? "#e0746c" : "#5cd6f0";
+  return (
+    <div style={{ padding: "10px 12px 12px", borderTop: "1px solid #1b1c1e", background: "#0a0a0b" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, padding: "0 2px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
+          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: ".18em", textTransform: "uppercase", color: "#52595f" }}>transport</span>
+          <div style={{ display: "flex", border: "1px solid #26282b", borderRadius: 4, overflow: "hidden" }}>
+            {["traag", "snel"].map((o) => (
+              <button key={o} onClick={() => onSpeed(o)} style={{
+                padding: "3px 11px", fontSize: 11, fontWeight: 600, letterSpacing: ".04em",
+                fontFamily: "'IBM Plex Mono', monospace", border: "none", cursor: "pointer",
+                background: speed === o ? "#172024" : "transparent", color: speed === o ? "#5cd6f0" : "#5b646b",
+              }}>{o}</button>
+            ))}
+          </div>
+        </div>
+        <span style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: accent }}>
+          <span style={{ width: 8, height: 8, borderRadius: 8, background: accent, boxShadow: `0 0 8px ${accent}`,
+            animation: (playing || looping) ? "sp-blink 1s steps(2) infinite" : "none" }} />
+          {labels[state] || state}
+        </span>
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <TransportButton icon={Icons.step} label="stap" active={stepping} accent="#5cd6f0" onClick={onStep} />
+        <TransportButton icon={Icons.play} label="speel" active={playing} accent="#34e24b" onClick={onPlay} />
+        <TransportButton icon={Icons.pause} label="pauze" active={paused} accent="#ffd23a" onClick={onPause} />
+        <TransportButton icon={Icons.loop} label="lus" active={looping} accent="#b15cff" onClick={onLoop} />
+      </div>
+    </div>
+  );
+}
+
+// ---------- message / help surface ---------------------------------------
+function MessageBar({ mode, errorText, errorLine, suggestion, onInsert }) {
+  if (mode === "error") {
+    return (
+      <div style={{ borderTop: "1px solid #1b1c1e", background: "#0e0c0c", padding: "12px 14px", minHeight: 96, display: "flex", gap: 12 }}>
+        <div style={{ width: 3, alignSelf: "stretch", background: "#e0746c", borderRadius: 2, flexShrink: 0 }} />
+        <div style={{ flex: 1 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+            <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, letterSpacing: ".16em", textTransform: "uppercase", color: "#a85852", whiteSpace: "nowrap" }}>de machine licht toe</span>
+            {errorLine != null && <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#e0746c", border: "1px solid #5a2f2c", borderRadius: 3, padding: "1px 6px", whiteSpace: "nowrap" }}>regel {errorLine}</span>}
+          </div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 14.5, lineHeight: "21px", color: "#e7d3d0", textWrap: "pretty" }}>{errorText}</div>
+        </div>
+      </div>
+    );
+  }
+  // help / ambient mode
+  return (
+    <div style={{ borderTop: "1px solid #1b1c1e", background: "#0b0b0c", padding: "12px 14px", minHeight: 96 }}>
+      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, letterSpacing: ".16em", textTransform: "uppercase", color: "#4b5258", marginBottom: 8 }}>
+        {suggestion ? suggestion.title : "maak iets!"}
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+        {(suggestion ? suggestion.chips : [
+          { label: "schildpad", insert: "schildpad" }, { label: "getal", insert: "getal" }, { label: "draairichting", insert: "draairichting" },
+        ]).map((c, i) => (
+          <button key={i} onClick={() => onInsert(c.insert)} style={{
+            fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, color: c.color || "#bcc4cb",
+            background: "#141618", border: "1px solid #25282b", borderRadius: 4, padding: "5px 10px", cursor: "pointer",
+          }}>{c.label}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------- oscilloscope -------------------------------------------------
+function Oscilloscope({ label, analyser, active, accent }) {
+  const ref = React.useRef(null);
+  React.useEffect(() => {
+    let raf; const c = ref.current; if (!c) return;
+    const ctx = c.getContext("2d");
+    const W = c.width, H = c.height;
+    const buf = analyser ? new Uint8Array(analyser.frequencyBinCount) : null;
+    let ph = 0;
+    function frame() {
+      ctx.clearRect(0, 0, W, H);
+      // dim grid dots
+      ctx.fillStyle = "#1a2024";
+      for (let x = 2; x < W; x += 6) for (let y = 2; y < H; y += 6) ctx.fillRect(x, y, 1, 1);
+      ctx.beginPath();
+      const col = active ? accent : "#2a3338";
+      ctx.strokeStyle = col; ctx.lineWidth = 1.5;
+      if (active && analyser && buf) {
+        analyser.getByteTimeDomainData(buf);
+        for (let i = 0; i < W; i++) {
+          const v = buf[Math.floor((i / W) * buf.length)] / 128 - 1;
+          const y = H / 2 + v * (H / 2 - 3);
+          i === 0 ? ctx.moveTo(i, y) : ctx.lineTo(i, y);
+        }
+      } else if (active) {
+        ph += 0.25;
+        for (let i = 0; i < W; i++) { const y = H / 2 + Math.sin(i * 0.4 + ph) * (H / 4); i === 0 ? ctx.moveTo(i, y) : ctx.lineTo(i, y); }
+      } else {
+        // dormant: a barely-alive flat line with the tiniest jitter
+        ph += 0.02;
+        for (let i = 0; i < W; i++) { const y = H / 2 + Math.sin(i * 0.6 + ph) * 0.6; i === 0 ? ctx.moveTo(i, y) : ctx.lineTo(i, y); }
+      }
+      ctx.stroke();
+      raf = requestAnimationFrame(frame);
+    }
+    frame();
+    return () => cancelAnimationFrame(raf);
+  }, [analyser, active, accent]);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+      <canvas ref={ref} width={104} height={42} style={{ display: "block", borderRadius: 2, background: "#0a0e10", border: "1px solid #16191b" }} />
+      <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, letterSpacing: ".14em", color: active ? accent : "#383f44", textAlign: "center" }}>{label}</span>
+    </div>
+  );
+}
+
+// ---------- IO log (ambient) ---------------------------------------------
+function IOLog() {
+  const [lines, setLines] = React.useState([]);
+  React.useEffect(() => {
+    const verbs = ["DISK", "DISK", "NET ", "DISK", "MEM ", "NET "];
+    const acts = ["rd blk", "wr blk", "seek", "rx pkt", "tx pkt", "cache", "flush", "sync", "alloc"];
+    const id = setInterval(() => {
+      const a = "0x" + Math.floor(Math.random() * 65536).toString(16).padStart(4, "0");
+      const ln = `${verbs[Math.floor(Math.random() * verbs.length)]} ${acts[Math.floor(Math.random() * acts.length)]} ${a}`;
+      setLines((p) => [...p.slice(-3), ln]);
+    }, 900);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9.5, lineHeight: "12px", color: "#2f363b", width: 116, overflow: "hidden", height: 42 }}>
+      {lines.map((l, i) => <div key={i} style={{ opacity: 0.35 + i * 0.18 }}>{l}</div>)}
+    </div>
+  );
+}
+
+// ---------- status bar ---------------------------------------------------
+function StatusBar({ pointer, analyser, audioActive, recentKeys }) {
+  const cellW = 1;
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: 18, height: 84, padding: "0 16px",
+      background: "#08090a", border: "1px solid #16191b", borderRadius: 4,
+    }}>
+      {/* pointer coords — the one genuinely useful readout */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, letterSpacing: ".16em", color: "#4b5258" }}>AANWIJZER</span>
+        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 17, color: "#9fb0bb", fontWeight: 600 }}>
+          x:{String(pointer.x).padStart(3, "0")} <span style={{ color: "#4b5258" }}>y:</span>{String(pointer.y).padStart(3, "0")}
+        </span>
+        <span style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: pointer.down ? "#34e24b" : "#3a4146" }}>
+          <span style={{ width: 7, height: 7, borderRadius: 1, background: pointer.down ? "#34e24b" : "#1f2529" }} />
+          {pointer.down ? "raak" : pointer.inside ? "zweef" : "—"}
+        </span>
+      </div>
+      <div style={{ width: 1, alignSelf: "stretch", margin: "16px 0", background: "#16191b" }} />
+      <Oscilloscope label="GELUID UIT" analyser={analyser} active={audioActive} accent="#34e24b" />
+      <Oscilloscope label="GELUID IN" analyser={null} active={false} accent="#3a86ff" />
+      <div style={{ width: 1, alignSelf: "stretch", margin: "16px 0", background: "#16191b" }} />
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, letterSpacing: ".16em", color: "#4b5258" }}>TOETSEN</span>
+        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 14, color: "#6b757c", whiteSpace: "nowrap", letterSpacing: ".05em" }}>
+          {recentKeys || "\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7"}
+        </span>
+      </div>
+      <div style={{ flex: 1 }} />
+      <IOLog />
+    </div>
+  );
+}
+
+window.SchildpadChrome = { Transport, MessageBar, StatusBar };
+
+</script>
+<script type="text/babel">
+/* schildpad-keyboard.jsx — custom input accessory + on-screen keyboard.
+ * A scaffold, not a replacement for typing: big tappable verbs/keywords + the
+ * fine-motor-nightmare symbols, over a child-legible letter grid. Three explorable
+ * layouts via the `layout` prop: "woorden" (verbs-first), "gegroepeerd" (labelled
+ * sections), "compact" (one verb row + keys).
+ */
+
+const KB_VERBS = [
+  { t: "maak", c: "#5cd6f0" }, { t: "vooruit", c: "#8ec9ff" }, { t: "draai", c: "#8ec9ff" },
+  { t: "links", c: "#9ad6a8" }, { t: "rechts", c: "#9ad6a8" }, { t: "pen", c: "#8ec9ff" },
+  { t: "print", c: "#ffb86b" }, { t: "herhaal", c: "#c9a6ff" }, { t: "random", c: "#ff9e64" },
+];
+const KB_TYPES = [{ t: "schildpad", c: "#b79bff" }, { t: "getal", c: "#b79bff" }, { t: "draairichting", c: "#b79bff" }];
+const KB_COLORS = ["rood", "groen", "blauw", "geel", "wit", "oranje", "paars", "cyaan", "roze"];
+const KB_SYMBOLS = ["=", '"', "[", "]", "(", ")", "+", "-", "*", "/"];
+const KB_DIGITS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"];
+const KB_QWERTY = [["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"], ["a", "s", "d", "f", "g", "h", "j", "k", "l"], ["z", "x", "c", "v", "b", "n", "m"]];
+
+function Key({ label, color, w = 1, h = 1, big, onPress, mono = true }) {
+  const [down, setDown] = React.useState(false);
+  return (
+    <button
+      onMouseDown={(e) => { e.preventDefault(); setDown(true); }}
+      onMouseUp={() => setDown(false)} onMouseLeave={() => setDown(false)}
+      onClick={onPress}
+      style={{
+        flex: w, height: 44 * h, minWidth: 0,
+        fontFamily: "'IBM Plex Mono', monospace", fontSize: big ? 16 : 14, fontWeight: big ? 600 : 500,
+        color: color || "#d2d9df",
+        background: down ? "#23272b" : "#15171a",
+        border: "1px solid " + (down ? "#3a4046" : "#26292d"),
+        borderBottom: down ? "1px solid #3a4046" : "2px solid #0c0d0f",
+        borderRadius: 5, cursor: "pointer", transform: down ? "translateY(1px)" : "none",
+        transition: "transform .04s, background .04s", padding: "0 4px", whiteSpace: "nowrap", overflow: "hidden",
+      }}>{label}</button>
+  );
+}
+
+function Row({ children, gap = 6 }) {
+  return <div style={{ display: "flex", gap, width: "100%" }}>{children}</div>;
+}
+
+function SectionLabel({ children }) {
+  return <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, letterSpacing: ".18em", textTransform: "uppercase", color: "#4b5258", margin: "2px 2px 0" }}>{children}</div>;
+}
+
+function OnScreenKeyboard({ layout, onKey, onBack, onEnter, onSpace }) {
+  const NAMED_KB = window.SchildpadFB.NAMED;
+  const ins = (t) => onKey(t);
+  const word = (t) => onKey(t + " ");
+
+  const VerbRow = ({ big }) => (
+    <Row>{KB_VERBS.map((v) => <Key key={v.t} label={v.t} color={v.c} big={big} onPress={() => word(v.t)} />)}</Row>
+  );
+  const TypeColorRow = () => (
+    <Row>
+      {KB_TYPES.map((v) => <Key key={v.t} label={v.t} color={v.c} onPress={() => word(v.t)} />)}
+      {KB_COLORS.map((c) => <Key key={c} label={c} color={NAMED_KB[c]} onPress={() => word(c)} />)}
+    </Row>
+  );
+  const SymbolRow = () => (
+    <Row>
+      {KB_DIGITS.map((d) => <Key key={d} label={d} color="#ffd23a" onPress={() => ins(d)} />)}
+      {KB_SYMBOLS.map((s) => <Key key={s} label={s} color="#86919a" onPress={() => ins(s)} />)}
+    </Row>
+  );
+  const Letters = () => (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      {KB_QWERTY.map((r, i) => (
+        <Row key={i}>
+          {i === 2 && <Key label="⌫" w={1.4} color="#86919a" onPress={onBack} />}
+          {r.map((k) => <Key key={k} label={k} onPress={() => ins(k)} />)}
+          {i === 2 && <Key label="enter" w={1.8} color="#5cd6f0" onPress={onEnter} />}
+        </Row>
+      ))}
+      <Row>
+        <Key label="'" w={1} color="#86919a" onPress={() => ins("'")} />
+        <Key label="spatie" w={6} color="#86919a" onPress={onSpace} />
+        <Key label="." w={1} color="#86919a" onPress={() => ins(".")} />
+      </Row>
+    </div>
+  );
+
+  let body;
+  if (layout === "gegroepeerd") {
+    body = (
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <SectionLabel>werkwoorden</SectionLabel>
+        <VerbRow big />
+        <SectionLabel>soorten &amp; kleuren</SectionLabel>
+        <TypeColorRow />
+        <SectionLabel>tekens &amp; cijfers</SectionLabel>
+        <SymbolRow />
+        <SectionLabel>letters</SectionLabel>
+        <Letters />
+      </div>
+    );
+  } else if (layout === "compact") {
+    body = (
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <Row><div style={{ display: "flex", gap: 6, overflowX: "auto", width: "100%" }}>
+          {[...KB_VERBS, ...KB_TYPES].map((v) => <Key key={v.t} label={v.t} color={v.c} onPress={() => word(v.t)} />)}
+        </div></Row>
+        <SymbolRow />
+        <Letters />
+      </div>
+    );
+  } else {
+    // woorden (verbs-first, the default)
+    body = (
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <VerbRow big />
+        <TypeColorRow />
+        <SymbolRow />
+        <Letters />
+      </div>
+    );
+  }
+
+  return (
+    <div style={{
+      background: "#0b0c0d", borderTop: "2px solid #1f2226", padding: "10px 12px 12px",
+      boxShadow: "0 -14px 30px rgba(0,0,0,.5)",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, padding: "0 2px" }}>
+        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: ".18em", textTransform: "uppercase", color: "#4b5258" }}>schermtoetsenbord</span>
+        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: "#3a4146" }}>{layout}</span>
+      </div>
+      {body}
+    </div>
+  );
+}
+
+window.SchildpadKeyboard = { OnScreenKeyboard };
+
+</script>
+<script type="text/babel" data-presets="react">
+
+
+
+
+const { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } = React;
+
+const FRAME_W = 1180, FRAME_H = 820;
+const COLS = 40;            // logical 320px wide; rows computed to fill the viewport
+
+const STARTER =
+`maak pietje schildpad
+pen blauw pietje
+herhaal 4
+  vooruit 130 pietje
+  draai rechts pietje
+penomhoog pietje
+draai rechts pietje
+vooruit 65 pietje
+draai links pietje
+vooruit 65 pietje`;
+
+const PRESETS = [
+  { name: "vierkant", code: STARTER },
+  { name: "trap", code:
+`maak pietje schildpad
+pen groen pietje
+herhaal 6
+  vooruit 36 pietje
+  draai rechts pietje
+  vooruit 36 pietje
+  draai links pietje` },
+  { name: "spiraal", code:
+`maak pietje schildpad
+maak stap getal = 6
+penomhoog pietje
+vooruit 150 pietje
+draai rechts pietje
+vooruit 120 pietje
+draai links pietje
+penomlaag pietje
+pen paars pietje
+herhaal 22
+  vooruit stap pietje
+  draai rechts pietje
+  stap = stap + 6` },
+  { name: "twee schildpadden", code:
+`maak pietje schildpad
+maak maxje schildpad
+pen blauw pietje
+pen geel maxje
+penomhoog maxje
+draai rechts maxje
+vooruit 70 maxje
+draai links maxje
+penomlaag maxje
+herhaal 4
+  vooruit 90 pietje
+  draai rechts pietje
+  vooruit 90 maxje
+  draai rechts maxje` },
+  { name: "muziek", code:
+`maak pietje schildpad
+print "luister"
+penomhoog pietje
+draai rechts pietje
+vooruit 50 pietje
+draai links pietje
+penomlaag pietje
+pen geel pietje
+play c d e f g a b
+herhaal 7
+  vooruit 28 pietje
+  draai rechts pietje
+  vooruit 28 pietje
+  draai links pietje` },
+  { name: "tel mee", code:
+`maak score getal = 0
+herhaal 6
+  score = score + 1
+  print score` },
+  { name: "wandeling", code:
+`maak pietje schildpad
+penomhoog pietje
+vooruit 150 pietje
+draai rechts pietje
+vooruit 130 pietje
+penomlaag pietje
+pen cyaan pietje
+herhaal 50
+  vooruit random pietje
+  draai random pietje` },
+  { name: "ster", code:
+`maak pietje schildpad
+maak punt draairichting = 144
+penomhoog pietje
+vooruit 60 pietje
+draai rechts pietje
+vooruit 90 pietje
+draai links pietje
+penomlaag pietje
+pen rood pietje
+herhaal 5
+  vooruit 150 pietje
+  draai punt pietje` },
+];
+
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "turtleStyle": "schildpad",
+  "canvasFont": "regular",
+  "showKeyboard": false,
+  "kbLayout": "woorden"
+}/*EDITMODE-END*/;
+
+// ---- live suggestion (the §2.1 introspection affordance) ----------------
+function computeSuggestion(code, turtleNames, typeOf) {
+  const Lang = window.Schildpad, FBlib = window.SchildpadFB;
+  typeOf = typeOf || (() => null);
+  const lines = code.split("\n");
+  let last = "";
+  for (let i = lines.length - 1; i >= 0; i--) { if (lines[i].trim()) { last = lines[i].trim(); break; } }
+  if (!last) return null;
+  const toks = Lang.tokenize(last);
+  const verbTok = toks.find((t) => t.kind === "verb");
+  if (verbTok) {
+    const sig = Lang.VERBS[verbTok.value.toLowerCase()];
+    const filled = new Set();
+    for (const t of toks) {
+      if (t === verbTok) continue;
+      if (t.kind === "dir") filled.add("draairichting");
+      else if (t.kind === "colour") filled.add("kleur");
+      else if (t.kind === "number") filled.add("getal");
+      else if (t.kind === "name") {
+        const ty = typeOf(t.value.toLowerCase());
+        if (ty && ty !== "nil") filled.add(ty);
+        else if (turtleNames.includes(t.value.toLowerCase())) filled.add("schildpad");
+      }
+    }
+    const missing = sig.slots.filter((s) => !filled.has(s));
+    if (!missing.length) return { title: `${verbTok.value} is compleet — druk enter`, chips: [] };
+    const chips = [];
+    for (const m of missing) {
+      if (m === "schildpad") turtleNames.forEach((n) => chips.push({ label: n, insert: n + " ", color: "#dbe2e8" }));
+      if (m === "getal") chips.push({ label: "een getal", insert: "", color: "#ffd23a" });
+      if (m === "draairichting") { chips.push({ label: "links", insert: "links ", color: "#9ad6a8" }); chips.push({ label: "rechts", insert: "rechts ", color: "#9ad6a8" }); }
+      if (m === "kleur") Lang.COLORS.forEach((c) => chips.push({ label: c, insert: c + " ", color: FBlib.NAMED[c] }));
+    }
+    return { title: `${verbTok.value} wil nog: ${missing.join(" + ")}`, chips };
+  }
+  const nameTok = toks.find((t) => t.kind === "name" && turtleNames.includes(t.value.toLowerCase()));
+  if (nameTok && toks.length === 1) {
+    return { title: `${nameTok.value} kan:`, chips: [
+      { label: "vooruit", insert: "vooruit ", color: "#8ec9ff" }, { label: "draai", insert: "draai ", color: "#8ec9ff" },
+      { label: "pen", insert: "pen ", color: "#8ec9ff" }, { label: "penomhoog", insert: "penomhoog ", color: "#8ec9ff" },
+    ] };
+  }
+  if (toks[0] && toks[0].kind === "maak") {
+    return { title: "maak een…", chips: [
+      { label: "schildpad", insert: "schildpad ", color: "#b79bff" }, { label: "getal", insert: "getal ", color: "#b79bff" }, { label: "draairichting", insert: "draairichting ", color: "#b79bff" },
+    ] };
+  }
+  return null;
+}
+
+function App() {
+  const { Editor } = window.SchildpadEditor;
+  const { Transport, MessageBar, StatusBar } = window.SchildpadChrome;
+  const { OnScreenKeyboard } = window.SchildpadKeyboard;
+  const Lang = window.Schildpad, FBlib = window.SchildpadFB;
+  const [t, setTweak] = window.useTweaks(TWEAK_DEFAULTS);
+  const [code, setCode] = useState(STARTER);
+  const [tstate, setTstate] = useState("idle");      // idle|playing|paused|looping|stepping|error|done
+  const [currentLine, setCurrentLine] = useState(null);
+  const [errorLine, setErrorLine] = useState(null);
+  const [message, setMessage] = useState({ mode: "help" });
+  const [pointer, setPointer] = useState({ x: 0, y: 0, down: false, inside: false });
+  const [recentKeys, setRecentKeys] = useState("");
+  const [audioActive, setAudioActive] = useState(false);
+  const [fbDisp, setFbDisp] = useState({ w: 640, h: 672 });
+  const [scaleFit, setScaleFit] = useState(1);
+  const [speed, setSpeed] = useState("snel");
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  const drawRef = useRef(null), spriteRef = useRef(null), fbStageRef = useRef(null);
+  const fbRef = useRef(null), engineRef = useRef(null), programRef = useRef(null);
+  const timerRef = useRef(null), taRef = useRef(null);
+  const fbWRef = useRef(320), fbHRef = useRef(336), firstSizeRef = useRef(true);
+  const speedRef = useRef(80); speedRef.current = speed === "snel" ? 80 : 250;
+  const audioCtxRef = useRef(null), analyserRef = useRef(null);
+  const styleRef = useRef(t.turtleStyle);
+  styleRef.current = t.turtleStyle;
+  const codeRef = useRef(code); codeRef.current = code;
+
+  const lines = useMemo(() => code.split("\n"), [code]);
+  const analysis = useMemo(() => Lang.analyze(code), [code]);
+
+  // ---- init engine + sprite RAF (framebuffer is built by the size effect) --
+  useEffect(() => {
+    const ctx = {
+      clear: () => fbRef.current && fbRef.current.clear(),
+      print: (s) => fbRef.current && fbRef.current.print(s),
+      move: (turtle, d) => fbRef.current && fbRef.current.move(turtle, d),
+      onSummon: (turtle) => { turtle._bornAt = performance.now(); },
+      onTurn: () => {},
+      defaultPen: (i) => fbRef.current.defaultPen(i),
+      colorOf: (n) => fbRef.current.colorOf(n),
+      audio: (spec) => playAudio(spec),
+    };
+    engineRef.current = new Lang.Engine(ctx);
+    let raf;
+    const loop = () => {
+      if (fbRef.current) fbRef.current.renderSprites(engineRef.current.turtleOrder, styleRef.current, performance.now());
+      raf = requestAnimationFrame(loop);
+    };
+    loop();
+    // auto-run the starter once so the canvas is alive on arrival
+    const boot = setTimeout(() => doPlay(false), 650);
+    return () => { cancelAnimationFrame(raf); clearTimeout(boot); };
+    // eslint-disable-next-line
+  }, []);
+
+  useEffect(() => { if (fbRef.current) fbRef.current.setFont(t.canvasFont); }, [t.canvasFont]);
+
+  // ---- scale frame to viewport -----------------------------------------
+  useLayoutEffect(() => {
+    const fit = () => setScaleFit(Math.min(window.innerWidth / FRAME_W, window.innerHeight / FRAME_H));
+    fit(); window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, []);
+
+  // ---- size framebuffer to fill its container -------------------------------
+  // Measure LAYOUT size (clientWidth/Height) — unaffected by the frame's CSS
+  // transform — so the canvas fills the pane at any window size. Width fills
+  // exactly (320 logical px scaled up); rows fill the available height. Square
+  // pixels (same scale both axes), kept crisp with image-rendering: pixelated.
+  useLayoutEffect(() => {
+    const el = fbStageRef.current; if (!el) return;
+    const avW = el.clientWidth - 6, avH = el.clientHeight - 6;
+    if (avW <= 0 || avH <= 0) return;
+    const scale = Math.max(1, avW / (COLS * 8));
+    const rows = Math.max(8, Math.floor(avH / (scale * 8)));
+    fbRef.current = FBlib.create({ drawCanvas: drawRef.current, spriteCanvas: spriteRef.current, cols: COLS, rows });
+    fbRef.current.setFont(t.canvasFont);
+    fbWRef.current = COLS * 8; fbHRef.current = rows * 8;
+    setFbDisp({ w: Math.round(COLS * 8 * scale), h: Math.round(rows * 8 * scale) });
+    if (firstSizeRef.current) { firstSizeRef.current = false; }
+    else { runAllCurrent(); }     // keyboard toggle resized the canvas — repaint instantly
+    // eslint-disable-next-line
+  }, [t.showKeyboard]);
+
+  // ---- audio -----------------------------------------------------------
+  const playAudio = useCallback((spec) => {
+    try {
+      if (!audioCtxRef.current) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        const ac = new AC();
+        const an = ac.createAnalyser(); an.fftSize = 256; an.connect(ac.destination);
+        audioCtxRef.current = ac; analyserRef.current = an;
+      }
+      const ac = audioCtxRef.current, an = analyserRef.current;
+      if (ac.state === "suspended") ac.resume();
+      const now = ac.currentTime;
+      const notes = spec.kind === "freq" ? [spec.freq] : spec.notes;
+      const dur = 0.26;
+      notes.forEach((f, i) => {
+        const osc = ac.createOscillator(), g = ac.createGain();
+        osc.type = "square"; osc.frequency.value = f;
+        const tt = now + i * dur;
+        g.gain.setValueAtTime(0.0001, tt);
+        g.gain.exponentialRampToValueAtTime(0.18, tt + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.0001, tt + dur - 0.02);
+        osc.connect(g).connect(an);
+        osc.start(tt); osc.stop(tt + dur);
+      });
+      setAudioActive(true);
+      const total = notes.length * dur * 1000 + 250;
+      clearTimeout(playAudio._t); playAudio._t = setTimeout(() => setAudioActive(false), total);
+    } catch (e) { /* audio optional */ }
+  }, []);
+
+  // ---- transport -------------------------------------------------------
+  const stopTimer = () => { if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; } };
+
+  const turtleNames = () => (engineRef.current ? engineRef.current.turtleOrder.map((x) => x.name.toLowerCase()) : []);
+  const typeOf = (n) => { const b = engineRef.current && engineRef.current.env.get(n); return b ? b.type : null; };
+  const refreshHelp = () => setMessage({ mode: "help", suggestion: computeSuggestion(codeRef.current, turtleNames(), typeOf) });
+
+  const handleError = (e) => {
+    stopTimer();
+    setTstate("error"); setErrorLine(e.line); setCurrentLine(e.line);
+    setMessage({ mode: "error", errorText: e.message, errorLine: e.line });
+  };
+
+  const compileProgram = () => {
+    try { return Lang.compile(codeRef.current).program; }
+    catch (e) { handleError(e.schildpad ? e : { line: null, message: "ik kon dit programma niet lezen." }); return null; }
+  };
+
+  const pump = (mode) => {
+    timerRef.current = setTimeout(() => {
+      let r;
+      try { r = engineRef.current.step(); }
+      catch (e) { if (e.schildpad) handleError(e); else handleError({ line: currentLine, message: "er ging iets onverwachts mis." }); return; }
+      if (r.line != null) setCurrentLine(r.line);
+      if (r.done) {
+        if (mode === "looping") { engineRef.current.reset(programRef.current); pump("looping"); }
+        else { setTstate("done"); refreshHelp(); }
+      } else { pump(mode); }
+    }, Math.max(20, speedRef.current));
+  };
+
+  // run the whole current program with no animation (instant repaint, e.g. after resize)
+  const runAllCurrent = () => {
+    stopTimer();
+    const prog = compileProgram(); if (!prog) return;
+    programRef.current = prog;
+    const e = engineRef.current; e.reset(prog);
+    let g = 0;
+    try { while (!e.done && g++ < 50000) { const r = e.step(); if (r.done) break; } }
+    catch (err) { if (err.schildpad) handleError(err); return; }
+    setCurrentLine(null); setTstate("done");
+  };
+
+  const doPlay = (loop) => {
+    stopTimer(); setErrorLine(null);
+    const prog = compileProgram(); if (!prog) return;
+    programRef.current = prog;
+    engineRef.current.reset(prog);
+    setCurrentLine(engineRef.current.currentLine());
+    setTstate(loop ? "looping" : "playing");
+    setMessage({ mode: "help", suggestion: null });
+    pump(loop ? "looping" : "playing");
+  };
+
+  const loadPreset = (p) => {
+    setMenuOpen(false);
+    setCode(p.code); codeRef.current = p.code;
+    setErrorLine(null);
+    setMessage({ mode: "help", suggestion: null });
+    setTimeout(() => doPlay(false), 60);
+  };
+
+  const doPause = () => { stopTimer(); if (tstate !== "error") setTstate("paused"); };
+
+  const doStep = () => {
+    stopTimer(); setErrorLine(null);
+    const e = engineRef.current;
+    if (tstate === "idle" || tstate === "done" || tstate === "error" || e.done) {
+      const prog = compileProgram(); if (!prog) return;
+      programRef.current = prog; e.reset(prog);
+    }
+    let r;
+    try { r = e.step(); }
+    catch (err) { if (err.schildpad) handleError(err); return; }
+    if (r.line != null) setCurrentLine(r.line);
+    if (r.done) { setTstate("done"); refreshHelp(); } else { setTstate("stepping"); }
+  };
+
+  // ---- editing ---------------------------------------------------------
+  const onCodeChange = (v) => {
+    setCode(v); codeRef.current = v;
+    if (tstate === "playing" || tstate === "looping") { stopTimer(); setTstate("paused"); }
+    if (tstate === "error" || message.mode === "error") { setErrorLine(null); }
+    if (tstate !== "playing" && tstate !== "looping") setCurrentLine(null);
+    setMessage({ mode: "help", suggestion: computeSuggestion(v, turtleNames(), typeOf) });
+  };
+
+  const onEnterLine = (text, lineNo) => {
+    try {
+      engineRef.current.runLine(text, lineNo);
+      setErrorLine(null);
+      refreshHelp();
+    } catch (e) { if (e.schildpad) { setTstate("error"); setErrorLine(e.line); setMessage({ mode: "error", errorText: e.message, errorLine: e.line }); } }
+  };
+
+  const insertAtCaret = (text) => {
+    const ta = taRef.current; if (!ta) return;
+    const s = ta.selectionStart, en = ta.selectionEnd;
+    const v = code.slice(0, s) + text + code.slice(en);
+    onCodeChange(v);
+    requestAnimationFrame(() => { ta.focus(); ta.selectionStart = ta.selectionEnd = s + text.length; });
+  };
+  const kbBackspace = () => {
+    const ta = taRef.current; if (!ta) return;
+    const s = ta.selectionStart, en = ta.selectionEnd;
+    if (s === en && s === 0) return;
+    const from = s === en ? s - 1 : s;
+    const v = code.slice(0, from) + code.slice(en);
+    onCodeChange(v);
+    requestAnimationFrame(() => { ta.focus(); ta.selectionStart = ta.selectionEnd = from; });
+  };
+  const kbEnter = () => {
+    const ta = taRef.current; if (!ta) return;
+    const s = ta.selectionStart;
+    const lineStart = code.lastIndexOf("\n", s - 1) + 1;
+    let lineEnd = code.indexOf("\n", s); if (lineEnd === -1) lineEnd = code.length;
+    const lineText = code.slice(lineStart, lineEnd);
+    const lineNo = code.slice(0, lineStart).split("\n").length;
+    if (lineText.trim()) onEnterLine(lineText, lineNo);
+    insertAtCaret("\n");
+  };
+
+  // ---- pointer over framebuffer ----------------------------------------
+  const onFbMove = (e) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const W = fbWRef.current, H = fbHRef.current;
+    const x = Math.max(0, Math.min(W - 1, Math.floor((e.clientX - r.left) / r.width * W)));
+    const y = Math.max(0, Math.min(H - 1, Math.floor((e.clientY - r.top) / r.height * H)));
+    setPointer((p) => ({ ...p, x, y, inside: true }));
+  };
+
+  // ---- global key indicator + shortcuts --------------------------------
+  useEffect(() => {
+    const onKey = (e) => {
+      let label = e.key;
+      if (e.key === " ") label = "␣"; else if (e.key === "Enter") label = "⏎";
+      else if (e.key === "Backspace") label = "⌫"; else if (e.key.length > 1) label = "";
+      if (label) setRecentKeys((p) => (p + label).slice(-9));
+      // parent shortcuts (don't steal typing keys)
+      if (e.metaKey || e.ctrlKey) {
+        if (e.key === "Enter") { e.preventDefault(); doPlay(false); }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line
+  }, [code, tstate]);
+
+  // ---- layout ----------------------------------------------------------
+  const kbHeight = t.showKeyboard ? (t.kbLayout === "compact" ? 250 : 318) : 0;
+
+  return (
+    <div id="stage">
+      <div id="frame" style={{ width: FRAME_W, height: FRAME_H, transform: `scale(${scaleFit})`, transformOrigin: "center" }}>
+        <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+          <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
+            {/* CODE PANE */}
+            <div style={{ width: 498, flexShrink: 0, display: "flex", flexDirection: "column", borderRight: "1px solid #1b1c1e", minHeight: 0 }}>
+              <div style={{ height: 42, flexShrink: 0, display: "flex", alignItems: "center", gap: 10, padding: "0 16px", borderBottom: "1px solid #16191b", background: "#0a0a0b", position: "relative", zIndex: 30 }}>
+                <span style={{ width: 11, height: 11, background: "#34e24b", borderRadius: 1, boxShadow: "0 0 8px #34e24b" }} />
+                <span style={{ fontSize: 14, fontWeight: 700, letterSpacing: ".02em", color: "#dbe2e8" }}>schildpad</span>
+                <span style={{ fontSize: 11, color: "#3c4147" }}>speeltuin</span>
+                <span style={{ flex: 1 }} />
+                <div style={{ position: "relative" }}>
+                  <button onClick={() => setMenuOpen((o) => !o)} style={{
+                    display: "flex", alignItems: "center", gap: 6, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12,
+                    color: menuOpen ? "#5cd6f0" : "#9fb0bb", background: menuOpen ? "#11171a" : "#101113",
+                    border: "1px solid " + (menuOpen ? "#2b4650" : "#26282b"), borderRadius: 4, padding: "5px 10px", cursor: "pointer",
+                  }}>voorbeelden <span style={{ fontSize: 9, opacity: .8 }}>{menuOpen ? "▲" : "▼"}</span></button>
+                  {menuOpen && (
+                    <div style={{
+                      position: "absolute", top: "calc(100% + 6px)", right: 0, width: 220, maxHeight: 360, overflowY: "auto",
+                      background: "#0e0f11", border: "1px solid #2a2d31", borderRadius: 6, boxShadow: "0 14px 40px rgba(0,0,0,.6)", padding: 5, zIndex: 40,
+                    }}>
+                      {PRESETS.map((p, i) => (
+                        <button key={i} onClick={() => loadPreset(p)} style={{
+                          display: "block", width: "100%", textAlign: "left", fontFamily: "'IBM Plex Mono', monospace", fontSize: 13,
+                          color: "#cdd4da", background: "transparent", border: "none", borderRadius: 4, padding: "8px 10px", cursor: "pointer",
+                        }}
+                          onMouseEnter={(e) => (e.currentTarget.style.background = "#181b1e")}
+                          onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>{p.name}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <span style={{ fontSize: 10.5, color: "#3c4147" }}>{t.showKeyboard ? "schermtoetsenbord" : "hardware-toetsenbord"}</span>
+              </div>
+              <Editor
+                code={code} analysis={analysis} lines={lines}
+                currentLine={currentLine} errorLine={errorLine}
+                onChange={onCodeChange} onEnterLine={onEnterLine} ghost taRef={taRef}
+              />
+              <MessageBar {...message} onInsert={insertAtCaret} />
+              <Transport state={tstate} speed={speed} onSpeed={setSpeed} onStep={doStep} onPlay={() => doPlay(false)} onPause={doPause} onLoop={() => doPlay(true)} />
+            </div>
+
+            {/* VIEWPORT */}
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: 16, gap: 12, background: "#070708", minWidth: 0 }}>
+              <div ref={fbStageRef} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 0 }}>
+                <div
+                  onMouseMove={onFbMove}
+                  onMouseEnter={() => setPointer((p) => ({ ...p, inside: true }))}
+                  onMouseLeave={() => setPointer((p) => ({ ...p, inside: false, down: false }))}
+                  onMouseDown={() => setPointer((p) => ({ ...p, down: true }))}
+                  onMouseUp={() => setPointer((p) => ({ ...p, down: false }))}
+                  style={{ position: "relative", width: fbDisp.w, height: fbDisp.h, boxShadow: "0 0 0 1px #16191b, 0 18px 50px rgba(0,0,0,.6)", background: "#000", cursor: "crosshair" }}>
+                  <canvas ref={drawRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", imageRendering: "pixelated" }} />
+                  <canvas ref={spriteRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", imageRendering: "pixelated", pointerEvents: "none" }} />
+                </div>
+              </div>
+              <StatusBar pointer={pointer} analyser={analyserRef.current} audioActive={audioActive} recentKeys={recentKeys} />
+            </div>
+          </div>
+
+          {/* ON-SCREEN KEYBOARD (variation) */}
+          {t.showKeyboard && (
+            <div style={{ flexShrink: 0, height: kbHeight }}>
+              <OnScreenKeyboard layout={t.kbLayout} onKey={insertAtCaret} onBack={kbBackspace} onEnter={kbEnter} onSpace={() => insertAtCaret(" ")} />
+            </div>
+          )}
+        </div>
+
+        {/* TWEAKS */}
+        <window.TweaksPanel>
+          <window.TweakSection label="Schildpad" />
+          <window.TweakRadio label="Sprite" value={t.turtleStyle} options={["schildpad", "rond", "pijl"]} onChange={(v) => setTweak("turtleStyle", v)} />
+          <window.TweakSection label="Pixelfont" />
+          <window.TweakRadio label="Karakter" value={t.canvasFont} options={["regular", "vet", "rond"]} onChange={(v) => setTweak("canvasFont", v)} />
+          <window.TweakSection label="Toetsenbord" />
+          <window.TweakToggle label="Schermtoetsenbord" value={t.showKeyboard} onChange={(v) => setTweak("showKeyboard", v)} />
+          <window.TweakSelect label="Indeling" value={t.kbLayout} options={["woorden", "gegroepeerd", "compact"]} onChange={(v) => setTweak("kbLayout", v)} disabled={!t.showKeyboard} />
+        </window.TweaksPanel>
+      </div>
+    </div>
+  );
+}
+
+function mountSchildpad(tries) {
+  tries = tries || 0;
+  const mods = {
+    SchildpadEditor: window.SchildpadEditor, SchildpadChrome: window.SchildpadChrome,
+    SchildpadKeyboard: window.SchildpadKeyboard, useTweaks: window.useTweaks,
+    TweaksPanel: window.TweaksPanel, Schildpad: window.Schildpad,
+    SchildpadFB: window.SchildpadFB, SchildpadFont: window.SchildpadFont,
+  };
+  const missing = Object.keys(mods).filter((k) => !mods[k]);
+  if (missing.length) {
+    if (tries > 60) {
+      document.getElementById("root").innerHTML =
+        '<pre style="color:#e0746c;font:14px monospace;padding:24px;white-space:pre-wrap">ontbrekende modules: ' + missing.join(", ") + "</pre>";
+      return;
+    }
+    setTimeout(() => mountSchildpad(tries + 1), 30);
+    return;
+  }
+  try {
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  } catch (e) {
+    document.getElementById("root").innerHTML =
+      '<pre style="color:#e0746c;font:14px monospace;padding:24px;white-space:pre-wrap">render-fout: ' + (e && e.message) + "\n\n" + (e && e.stack) + "</pre>";
+  }
+}
+mountSchildpad();
+
+
+
+
+</script>
+</body>
+</html>
