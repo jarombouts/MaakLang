@@ -1,0 +1,16 @@
+[package]
+name = "schildpad-ffi"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "C ABI for schildpad-core: an opaque engine handle + JSON event stream, for SwiftUI/iOS and embedded hosts."
+
+[lib]
+name = "schildpad_ffi"
+# staticlib → the .a we bundle into an xcframework for iOS; cdylib → a .dylib for quick host smoke tests.
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+schildpad-core = { path = "../core" }
