@@ -30,23 +30,33 @@ struct SpriteSnapshot: Decodable, Identifiable {
 // MARK: - The framebuffer (a chunky RGBA pixel buffer the host rasterises)
 
 final class Framebuffer {
-    private(set) var width: Int
-    private(set) var height: Int
-    private(set) var pixels: [UInt32] // 0xRRGGBBAA, big-endian byte order
+    let width: Int
+    let height: Int
+    private var bytes: [UInt8] // RGBA8888, one byte per component — endianness-free
 
     init(cols: Int, rows: Int) {
         width = cols * 8
         height = rows * 8
-        pixels = [UInt32](repeating: Palette.background, count: width * height)
+        bytes = [UInt8](repeating: 0, count: width * height * 4)
+        clear()
     }
 
     func clear() {
-        for i in pixels.indices { pixels[i] = Palette.background }
+        var i = 0
+        while i < bytes.count {
+            bytes[i] = 0; bytes[i + 1] = 0; bytes[i + 2] = 0; bytes[i + 3] = 255 // opaque black
+            i += 4
+        }
     }
 
+    /// `rgba` is 0xRRGGBBAA (host palette value); split into bytes here.
     func plot(_ x: Int, _ y: Int, _ rgba: UInt32) {
         guard x >= 0, y >= 0, x < width, y < height else { return }
-        pixels[y * width + x] = rgba
+        let i = (y * width + x) * 4
+        bytes[i] = UInt8((rgba >> 24) & 0xFF)
+        bytes[i + 1] = UInt8((rgba >> 16) & 0xFF)
+        bytes[i + 2] = UInt8((rgba >> 8) & 0xFF)
+        bytes[i + 3] = UInt8(rgba & 0xFF)
     }
 
     /// 8x8 block text: render each character as a filled cell (placeholder until the core
@@ -62,10 +72,10 @@ final class Framebuffer {
 
     func makeImage() -> CGImage? {
         let cs = CGColorSpaceCreateDeviceRGB()
-        let info = CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue
-        return pixels.withUnsafeBytes { raw -> CGImage? in
+        let info = CGImageAlphaInfo.premultipliedLast.rawValue // RGBA byte order, default endianness
+        return bytes.withUnsafeBytes { raw -> CGImage? in
             guard let base = raw.baseAddress,
-                  let provider = CGDataProvider(data: Data(bytes: base, count: pixels.count * 4) as CFData)
+                  let provider = CGDataProvider(data: Data(bytes: base, count: bytes.count) as CFData)
             else { return nil }
             return CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32,
                            bytesPerRow: width * 4, space: cs, bitmapInfo: CGBitmapInfo(rawValue: info),

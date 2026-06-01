@@ -22,6 +22,10 @@ struct ContentView: View {
         }
         .background(Color(white: 0.06))
         .ignoresSafeArea(.keyboard)
+        .onAppear {
+            // calm cold start by default; MAAK_AUTOPLAY=1 (test/screenshot) runs the demo
+            if ProcessInfo.processInfo.environment["MAAK_AUTOPLAY"] == "1" { sp.play() }
+        }
     }
 
     // MARK: code pane
