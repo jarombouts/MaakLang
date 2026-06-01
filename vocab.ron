@@ -1,0 +1,200 @@
+// vocab.ron — THE single source of truth for the Schildpad vocabulary.
+//
+// Loaded by schildpad-core (serde) into its resolution tables; projected by
+// `xtask gen-docs` into reference docs, by `xtask gen-palette` into the on-screen
+// keyboard, and read by core::introspect to drive the LSP / help-bar.
+//
+// HARD RULES enforced by the loader at startup (refuses to boot otherwise):
+//   * Every verb's `slots` must be PAIRWISE-DISTINCT in type (LANGUAGE.md §2).
+//     The day a verb needs two slots of one type, add an explicit positional
+//     tie-break field here — never let it become a guess.
+//   * Every `reserved: true` type name and every keyword id is forbidden as a
+//     variable name (LANGUAGE.md §3.1).
+//
+// NAMES live here; VALUES (hex, ADSR numbers, waveform math) live host-side in
+// palette.json / the host synth. The name is the language's, the value is the
+// agency's (LANGUAGE.md §10).
+//
+// Every `examples` entry is a (program, expect) pair run through the REAL
+// interpreter in CI (xtask gen-docs + cargo test). Docs cannot drift from runtime.
+
+Vocab(
+    // ─── TYPES ────────────────────────────────────────────────────────────────
+    // reserved: true  → a reserved type-word; can never be a variable name, and
+    //                   acts as a postfix cast after `maak <naam>` (§3.1).
+    // reserved: false → a runtime/preset type that behaves like a value family
+    //                   (like `kleur`): named values exist, but the type-word
+    //                   itself is not a surface keyword the child types.
+    types: [
+        Type( id: "schildpad",     reserved: true,  nl: "schildpad",
+              doc: "Een schildpad: een wezen dat je maakt, een naam geeft, en bestuurt. Heeft een plek, een richting, een pen-kleur en pen op/neer.",
+              examples: [ ("maak pietje schildpad", TurtleExists("pietje")) ] ),
+        Type( id: "getal",         reserved: true,  nl: "getal",
+              doc: "Een getal. Hele getallen meestal; kommagetallen mogen, maar worden netjes getoond (12, niet 12.0).",
+              examples: [ ("maak score = 0", BindingEquals("score", "0")) ] ),
+        Type( id: "draairichting", reserved: true,  nl: "draairichting",
+              doc: "Een draai: een hoek met teken. `links` is -90, `rechts` is +90. Je mag je eigen maken: `maak schuin draairichting = 45`.",
+              examples: [ ("maak schuin draairichting = 45", BindingEquals("schuin", "45")) ] ),
+
+        // NEW (this version) — audio. Two reserved nouns carry the whole audio surface.
+        Type( id: "toon",          reserved: true,  nl: "toon",
+              doc: "Eén toon: een toonhoogte en een duur (in tellen). De bouwsteen van een deuntje. Standaard een eenvoudige sinus.",
+              examples: [ ("maak hoog toon = do", TonePitch("hoog", "do")) ] ),
+        Type( id: "deuntje",       reserved: true,  nl: "deuntje",
+              doc: "Een deuntje: een reeks tonen en stiltes achter elkaar. Dit is het ENE audio-ding dat een kind maakt en een naam geeft.",
+              examples: [ ("maak liedje deuntje = do re mi fa", SequenceLen("liedje", 4)) ] ),
+
+        // runtime/preset types — NOT reserved surface words (treated like `kleur`).
+        Type( id: "kleur",         reserved: false, nl: "kleur",
+              doc: "Een kleur voor de pen. Genoemde kleuren, geen hex.", examples: [] ),
+        Type( id: "oscillator",    reserved: false, nl: "oscillator",
+              doc: "De golfvorm van een toon: sinus, blok, zaag, driehoek. Optioneel; je maakt er een en geeft hem aan een deuntje of toon.",
+              examples: [ ("maak fluit oscillator = sinus", OscPreset("fluit", "sinus")) ] ),
+        Type( id: "omhullende",    reserved: false, nl: "omhullende",
+              doc: "De vorm van het volume van een toon door de tijd (aanzwellen/wegsterven). Een handvol genoemde presets; geen ADSR-getallen op het oppervlak.",
+              examples: [] ),
+
+        // nil is the type of a freshly-`maak`'d binding with no type and no value.
+        // It is a real, nameable state; PRINTING it is the error (§8), not having it.
+        Type( id: "nil",           reserved: false, nl: "nil",
+              doc: "De waarde van iets dat je wel gemaakt hebt maar nog geen waarde gegeven hebt.", examples: [] ),
+    ],
+
+    // ─── VERBS ──────────────────────────────────────────────────────────────────
+    // slots: ORDERED list of type ids. Resolution fills by type in any token order;
+    //        the order here is only the documented tie-break for a (future) verb with
+    //        two same-typed slots. All v1 verbs are pairwise-distinct → order is free.
+    // sampler: the domain `random` draws from when this verb holds it (§5). None = the
+    //          verb cannot sample (asking it to is a hard error).
+    verbs: [
+        Verb( id: "vooruit",   slots: ["getal", "schildpad"],
+              sampler: Some(Uniform( domain: "getal", lo: 0, hi: 100 )),
+              doc: "Loop een aantal stappen vooruit in de huidige richting; trekt een lijn als de pen neer is.",
+              examples: [ ("maak pietje schildpad\nvooruit 100 pietje", TurtleAt("pietje", 100, 0)) ] ),
+        Verb( id: "achteruit", slots: ["getal", "schildpad"],
+              sampler: Some(Uniform( domain: "getal", lo: 0, hi: 100 )),
+              doc: "Loop een aantal stappen achteruit (vooruit met negatieve afstand).",
+              examples: [] ),
+        Verb( id: "draai",     slots: ["draairichting", "schildpad"],
+              sampler: Some(Choice( domain: "draairichting", of: ["links", "rechts"] )),
+              doc: "Draai de schildpad over een draairichting. `links`/`rechts`, of je eigen hoek.",
+              examples: [ ("maak pietje schildpad\ndraai links pietje", TurtleHeading("pietje", 270)) ] ),
+        Verb( id: "pen",       slots: ["kleur", "schildpad"], sampler: None,
+              doc: "Zet de pen-kleur van de schildpad. Tekent vanaf nu in die kleur.",
+              examples: [ ("maak pietje schildpad\npen rood pietje", TurtlePen("pietje", "rood")) ] ),
+        Verb( id: "penomhoog", slots: ["schildpad"], sampler: None,
+              doc: "Til de pen op: bewegen tekent geen lijn meer.", examples: [] ),
+        Verb( id: "penomlaag", slots: ["schildpad"], sampler: None,
+              doc: "Zet de pen neer: bewegen tekent weer een lijn.", examples: [] ),
+
+        // NEW (this version) — `play` is now a real verb, not a special-cased statement.
+        // One polymorphic slot accepts a deuntje OR a toon OR a getal (raw Hz). A run of
+        // bare note-words is gathered into an inline deuntje (a variadic/list-gathering slot).
+        Verb( id: "play",      slots: ["deuntje"],
+              sampler: Some(Choice( domain: "toon", of: ["do","re","mi","fa","sol","la","si"] )),
+              doc: "Speel een deuntje, een losse toon, of een toonhoogte (`play 440`). `play random` kiest één willekeurige noot.",
+              examples: [ ("play do re mi", AudioVoices(3)), ("play 440", AudioVoices(1)) ] ),
+    ],
+
+    // ─── CONSTANTS (builtin typed values) ────────────────────────────────────────
+    constants: [
+        Const( id: "links",  type: "draairichting", value: I(-90), nl: "links" ),
+        Const( id: "rechts", type: "draairichting", value: I(90),  nl: "rechts" ),
+        // `stilte` is a VALUE of type `toon` (a rest), NOT its own type — mirroring how
+        // links/rechts are values of draairichting so `draai` never special-cases them.
+        // A deuntje is therefore uniformly a sequence of `toon`. (§13)
+        Const( id: "stilte", type: "toon", value: Rest, nl: "stilte" ),
+    ],
+
+    // ─── COLOURS (names only; hex lives in palette.json) ──────────────────────────
+    colours: [
+        Colour( id: "rood", palette_key: "rood" ), Colour( id: "groen",  palette_key: "groen"  ),
+        Colour( id: "blauw", palette_key: "blauw"), Colour( id: "geel",   palette_key: "geel"   ),
+        Colour( id: "wit",  palette_key: "wit"  ), Colour( id: "zwart",  palette_key: "zwart"  ),
+        Colour( id: "oranje", palette_key: "oranje"), Colour( id: "paars", palette_key: "paars" ),
+        Colour( id: "cyaan", palette_key: "cyaan"), Colour( id: "roze",   palette_key: "roze"   ),
+    ],
+
+    // ─── OSCILLATOR PRESETS (names only; waveform math host-side) ──────────────────
+    oscillators: [
+        Osc( id: "sinus", nl: "sinus" ), Osc( id: "blok", nl: "blok" ),
+        Osc( id: "zaag",  nl: "zaag"  ), Osc( id: "driehoek", nl: "driehoek" ),
+    ],
+    // ─── ENVELOPE PRESETS (names only; ADSR numbers host-side) ─────────────────────
+    envelopes: [
+        Env( id: "kort",        nl: "kort" ),         // plucky
+        Env( id: "langzaam-aan", nl: "langzaam-aan" ), // slow attack
+        Env( id: "vast",        nl: "vast" ),         // organ-like sustain
+    ],
+
+    // ─── NOTE LITERALS ────────────────────────────────────────────────────────────
+    // DECISION (flagged for confirmation): note literals use SOLFÈGE names, not letters.
+    //   Why not a/b/c/d/e/f/g: those single letters collide with variable names the spec
+    //   itself uses (§8: `maak a = 1`, `maak b = 2`, `d = b - a`). Reserving them globally
+    //   would break those examples; reserving them only "in audio position" would be a
+    //   context-sensitive guess — banned by the compass. Solfège is multi-character,
+    //   collision-free, globally reservable, and arguably more singable for a child.
+    //   This DIVERGES from §10's `play a b c d`; confirm before locking.
+    // A trailing number on a note = DURATION in beats (e.g. `do2` = do held two beats),
+    //   NOT octave. Pick one meaning; the compass forbids inferring from context.
+    notes: [
+        Note( id: "do", freq_hz: 261.63 ), Note( id: "re", freq_hz: 293.66 ),
+        Note( id: "mi", freq_hz: 329.63 ), Note( id: "fa", freq_hz: 349.23 ),
+        Note( id: "sol", freq_hz: 392.00 ), Note( id: "la", freq_hz: 440.00 ),
+        Note( id: "si", freq_hz: 493.88 ),
+    ],
+
+    // ─── KEYWORDS (reserved, non-type) ────────────────────────────────────────────
+    keywords: [
+        Keyword( id: "maak",    kind: Maak,
+                 doc: "Het toverwoord: maakt iets en geeft het een naam. De enige manier om iets te laten bestaan." ),
+        Keyword( id: "print",   kind: Print, doc: "Teken de waarde van iets als tekst op het scherm." ),
+        Keyword( id: "herhaal", kind: Loop,  doc: "Herhaal een blok een aantal keer." ),
+        Keyword( id: "doe",     kind: Loop,  doc: "`doe N keer [..]` of een oneindige `doe [..]` (alleen handig met Stap/Pauze)." ),
+        Keyword( id: "keer",    kind: LoopAux, doc: "Hoort bij `doe N keer`." ),
+
+        // NEW (this version) — conditionals. Surface-minimal: the comparison words are
+        // legal ONLY inside the `als`-header, so no first-class boolean ever escapes (§16).
+        Keyword( id: "als",     kind: If,     doc: "Doe een blok ALLEEN als de vergelijking klopt. Bijv. `als score groter 10 [ ... ]`." ),
+        Keyword( id: "anders",  kind: Else,   doc: "Het andere geval, na een `als`. Optioneel." ),
+        Keyword( id: "groter",  kind: Compare, doc: "Vergelijking, alleen in een als-kop: links groter dan rechts?" ),
+        Keyword( id: "kleiner", kind: Compare, doc: "Vergelijking, alleen in een als-kop: links kleiner dan rechts?" ),
+        Keyword( id: "gelijk",  kind: Compare, doc: "Vergelijking, alleen in een als-kop: links gelijk aan rechts?" ),
+
+        // wrapmode policy command (runtime behaviour, mutable from code) — §9/§10.
+        Keyword( id: "wrapmode", kind: WrapMode, doc: "Zet hoe de rand werkt: `wrap` (standaard, rondom) of `klem` (blijft aan de rand)." ),
+    ],
+
+    // ─── ERROR TEMPLATES (Tier-2, verbose, patient Dutch — §8) ────────────────────
+    // The core emits ErrorKind + structured args; the HOST formats the sentence from
+    // these templates (keeps core no_std + localization-ready, ARCHITECTURE.md §7).
+    // {param} slots are filled from the args; reconstructed intent (the built dynamic
+    // name, its literal prefix, the value of its variable) arrives as real data, not by
+    // re-splitting source — so §7.1's "error for free" is literally true.
+    errors: [
+        ErrorTmpl( id: "AssignToUndeclared", params: ["rhs", "name", "line"],
+            nl: "je probeerde '{rhs}' toe te kennen aan '{name}' op regel {line}, maar '{name}' bestaat op dat moment nog niet. misschien wil je '{name}' eerst maken met 'maak {name}'?" ),
+        ErrorTmpl( id: "PrintNil", params: ["name"],
+            nl: "je probeerde '{name}' te printen, maar die had op dat moment de waarde nil. ik weet niet hoe ik nil moet printen." ),
+        ErrorTmpl( id: "BareRandom", params: [],
+            nl: "random waarvan? ik kan alleen willekeurig kiezen als er een werkwoord voor staat dat weet waaruit het mag kiezen, zoals 'vooruit random' of 'draai random'." ),
+        ErrorTmpl( id: "DynamicNameNotFound", params: ["full", "prefix", "var"],
+            nl: "ik probeerde '{full}' te vinden, opgebouwd uit '{prefix}' en de waarde van {var}, maar die bestaat niet." ),
+        ErrorTmpl( id: "ReservedAsName", params: ["word"],
+            nl: "'{word}' is een gereserveerd woord; je kunt het niet als naam gebruiken." ),
+        ErrorTmpl( id: "VerbWantsTurtle", params: ["verb", "example"],
+            nl: "'{verb}' wil weten welke schildpad het moet besturen, maar ik zie er geen op deze regel. bijvoorbeeld: '{example}'." ),
+        ErrorTmpl( id: "VerbWantsNumber", params: ["verb"],
+            nl: "'{verb}' wil een getal (een afstand), maar dat zie ik niet op deze regel. bijvoorbeeld '{verb} 50 ...'." ),
+        ErrorTmpl( id: "VerbWantsDirection", params: ["verb"],
+            nl: "'{verb}' wil een richting, zoals 'links' of 'rechts'." ),
+        ErrorTmpl( id: "VerbWantsColour", params: ["verb"],
+            nl: "'{verb}' wil een kleur, zoals 'rood' of 'blauw'." ),
+        ErrorTmpl( id: "DivideByZero", params: [],
+            nl: "ik kan niet door nul delen." ),
+        // NEW — leftover tokens must error, never be silently dropped (the prototype
+        // silently dropped the cast in `schuin = 45 draairichting`). Strict, never fuzzy.
+        ErrorTmpl( id: "UnconsumedTokens", params: ["leftover", "line"],
+            nl: "ik snapte het begin van regel {line}, maar wist niet wat ik met '{leftover}' moest. ik laat liever niets stiekem vallen." ),
+    ],
+)
