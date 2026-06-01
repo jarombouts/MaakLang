@@ -28,10 +28,10 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		D1D1D1D1D1D1D1D1D1D1D1D1 /* SchildpadFFI.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = SchildpadFFI.xcframework; path = "../SchildpadFFI/SchildpadFFI.xcframework"; sourceTree = "<group>"; };
 		902F7EE22FCDAC5B002B2340 /* Maak.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Maak.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		902F7EF32FCDAC5D002B2340 /* MaakTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MaakTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		902F7EFD2FCDAC5D002B2340 /* MaakUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MaakUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		D1D1D1D1D1D1D1D1D1D1D1D1 /* SchildpadFFI.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = SchildpadFFI.xcframework; path = ../SchildpadFFI/SchildpadFFI.xcframework; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */

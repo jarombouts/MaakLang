@@ -10,15 +10,18 @@ private let LOGICAL_H: CGFloat = 240
 
 struct ContentView: View {
     @StateObject private var sp = Schildpad()
+    @StateObject private var bridge = EditorBridge()
 
     var body: some View {
-        HStack(spacing: 0) {
-            codePane
-                .frame(maxWidth: .infinity)
-            Divider().background(Color.white.opacity(0.1))
-            viewport
-                .frame(maxWidth: .infinity)
-                .background(Color.black)
+        GeometryReader { geo in
+            HStack(spacing: 0) {
+                codePane
+                    .frame(width: geo.size.width * 0.48)
+                Divider().background(Color.white.opacity(0.1))
+                viewport
+                    .frame(maxWidth: .infinity)
+                    .background(Color.black)
+            }
         }
         .background(Color(white: 0.06))
         .ignoresSafeArea(.keyboard)
@@ -43,13 +46,9 @@ struct ContentView: View {
             }
             .padding(12)
 
-            TextEditor(text: $sp.program)
-                .font(.system(.title3, design: .monospaced))
-                .scrollContentBackground(.hidden)
+            CodeEditor(text: $sp.program, bridge: bridge)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color(white: 0.08))
-                .padding(8)
-                .disableAutocorrection(true)
-                .textInputAutocapitalization(.never)
 
             if let err = sp.errorText {
                 Text(err)
@@ -59,6 +58,8 @@ struct ContentView: View {
                     .padding(12)
                     .background(Color(white: 0.12))
             }
+
+            KeyboardPalette(bridge: bridge)
 
             transport
         }
