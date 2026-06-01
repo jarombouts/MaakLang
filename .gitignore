@@ -1,8 +1,8 @@
 # Rust
 /target/
 **/target/
-Cargo.lock        # workspace is a set of apps+libs; keep lockfile out until we ship a binary crate of record
 *.rs.bk
+# Cargo.lock IS committed — the workspace ships a binary crate (cli), so we pin deps.
 
 # Swift / Xcode
 .build/

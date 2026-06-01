@@ -1,0 +1,13 @@
+[workspace]
+resolver = "2"
+members = ["core", "cli"]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+authors = ["Jeroen Rombouts <jeroen@strangeloop.nl>"]
+repository = "https://github.com/jarombouts/MaakLang"
+
+[profile.release]
+opt-level = 3
+lto = true

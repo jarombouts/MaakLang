@@ -1,0 +1,19 @@
+[package]
+name = "schildpad-core"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "The Schildpad language core: tokenize, resolve, execute, explain. no_std-friendly, the single source of truth for semantics."
+
+[lib]
+name = "schildpad_core"
+
+# The core is no_std + alloc. It pulls NO runtime dependencies — the vocabulary is
+# generated at build time from ../vocab.ron by build.rs (build-deps may use std freely).
+[dependencies]
+
+[build-dependencies]
+ron = "0.8"
+serde = { version = "1", features = ["derive"] }
