@@ -80,6 +80,7 @@ pub enum KwKind {
     Else,
     Compare,
     WrapMode,
+    Break,
 }
 
 // The generated tables: RESERVED_TYPE_WORDS, VERBS, CONSTANTS, COLOURS, OSCILLATORS,

@@ -49,6 +49,12 @@ pub enum ErrorKind {
     LoopViaEnter,
     MaakNeedsName,
     MaakNotUnderstood { src: String, name: String },
+    /// Left of `=` must be a nameable word, not a value (`maak 0 = score`). (LANGUAGE.md §4)
+    MaakNameNotAWord { word: String },
+    /// `maak hoe_ver = vooruit random` — currying `random` would freeze one draw. (§14)
+    CurriedRandom { verb: String },
+    /// `maak x = play …` — `play` can't be stored half-finished; make a deuntje instead. (§14)
+    CurryPlay,
 }
 
 impl ErrorKind {
@@ -129,6 +135,18 @@ impl ErrorKind {
             MaakNotUnderstood { src, name } => format!(
                 "ik begreep '{src}' niet. probeer 'maak {name} schildpad' of 'maak {name} = 0'."
             ),
+            MaakNameNotAWord { word } => format!(
+                "ik kan hier geen naam van maken: links van '=' hoort een naam te staan, niet '{word}'. \
+                 bijvoorbeeld 'maak score = 0'."
+            ),
+            CurriedRandom { verb } => format!(
+                "een actie met 'random' erin kan ik niet opslaan: dan zou ik '{verb} random' één keer \
+                 gooien en dat ene getal voor altijd onthouden. schrijf '{verb} random pietje' los in je \
+                 lus, dan gooit hij elke keer opnieuw."
+            ),
+            CurryPlay => "je kunt 'play' niet half af opslaan als actie. maak liever een deuntje: \
+                'maak liedje deuntje = do re mi'."
+                .to_string(),
         }
     }
 }

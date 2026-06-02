@@ -225,6 +225,7 @@ pub fn tok_text(t: &Tok) -> alloc::string::String {
         Tok::WrapMode => "wrapmode".to_string(),
         Tok::Loop(w) => w.to_string(),
         Tok::LoopKeer => "keer".to_string(),
+        Tok::Stop => "stop".to_string(),
         Tok::If => "als".to_string(),
         Tok::Else => "anders".to_string(),
         Tok::Compare(_) => "vergelijking".to_string(),

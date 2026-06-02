@@ -55,6 +55,16 @@ mod tests {
         events.iter().filter(|e| matches!(e, Event::Draw(DrawOp::Plot { .. }))).count()
     }
 
+    fn texts(events: &[Event]) -> Vec<String> {
+        events
+            .iter()
+            .filter_map(|e| match e {
+                Event::Draw(DrawOp::Text { text, .. }) => Some(text.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
     #[test]
     fn canonical_first_program_runs_clean() {
         let (events, err) = run("maak pietje schildpad\nvooruit 100 pietje\ndraai links pietje\nvooruit 100 pietje");
@@ -153,6 +163,69 @@ mod tests {
             _ => None,
         });
         assert_eq!(voices, Some(3));
+    }
+
+    // ---- #47: maak name/type order-free (LANGUAGE.md §4) ----------------------
+
+    #[test]
+    fn maak_name_type_order_is_free() {
+        // `maak schildpad pietje` must be identical to `maak pietje schildpad`.
+        let a = run("maak pietje schildpad\nvooruit 100 pietje");
+        let b = run("maak schildpad pietje\nvooruit 100 pietje");
+        assert!(a.1.is_none() && b.1.is_none(), "a={:?} b={:?}", a.1, b.1);
+        assert_eq!(plots(&a.0), plots(&b.0));
+    }
+
+    #[test]
+    fn maak_typed_assign_both_orders() {
+        let a = run("maak getal Score = 7\nprint Score");
+        let b = run("maak Score getal = 7\nprint Score");
+        assert!(a.1.is_none() && b.1.is_none(), "a={:?} b={:?}", a.1, b.1);
+        assert_eq!(texts(&a.0), alloc::vec!["7"]);
+        assert_eq!(texts(&b.0), alloc::vec!["7"]);
+    }
+
+    #[test]
+    fn maak_value_left_of_eq_is_illegal() {
+        // `maak 0 = score` — the left of `=` must be a nameable word, not a value.
+        let (_, err) = run("maak 0 = score");
+        let e = err.unwrap();
+        assert!(e.contains("links van '='"), "{e}");
+    }
+
+    // ---- #48: `stop` breaks the innermost loop (LANGUAGE.md §6.1) --------------
+
+    #[test]
+    fn stop_breaks_herhaal() {
+        let stopped = run("maak p schildpad\nherhaal 10\n  vooruit 10 p\n  stop");
+        let once = run("maak p schildpad\nvooruit 10 p");
+        assert!(stopped.1.is_none(), "{:?}", stopped.1);
+        assert_eq!(plots(&stopped.0), plots(&once.0), "herhaal+stop should run the body once");
+    }
+
+    #[test]
+    fn stop_breaks_unbounded_doe() {
+        // without `stop` this is an infinite loop; `stop` is the only in-language way out.
+        let stopped = run("maak p schildpad\ndoe\n  vooruit 10 p\n  stop");
+        let once = run("maak p schildpad\nvooruit 10 p");
+        assert!(stopped.1.is_none(), "{:?}", stopped.1);
+        assert_eq!(plots(&stopped.0), plots(&once.0));
+    }
+
+    #[test]
+    fn stop_outside_loop_is_noop() {
+        let r = run("maak p schildpad\nstop\nvooruit 10 p");
+        assert!(r.1.is_none(), "{:?}", r.1);
+        assert!(plots(&r.0) > 0, "the line after a top-level stop must still run");
+    }
+
+    #[test]
+    fn stop_in_nested_if_breaks_the_loop() {
+        // stop inside an `als` inside a `herhaal` must unwind through the if to the loop.
+        let r = run("maak p schildpad\nmaak i = 0\nherhaal 5\n  vooruit 10 p\n  als i gelijk 0\n    stop");
+        let once = run("maak p schildpad\nvooruit 10 p");
+        assert!(r.1.is_none(), "{:?}", r.1);
+        assert_eq!(plots(&r.0), plots(&once.0));
     }
 
     #[test]

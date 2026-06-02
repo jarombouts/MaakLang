@@ -152,6 +152,9 @@ Vocab(
         Keyword( id: "herhaal", kind: Loop,  doc: "Herhaal een blok een aantal keer." ),
         Keyword( id: "doe",     kind: Loop,  doc: "`doe N keer [..]` of een oneindige `doe [..]` (alleen handig met Stap/Pauze)." ),
         Keyword( id: "keer",    kind: LoopAux, doc: "Hoort bij `doe N keer`." ),
+        // NEW (this version) — break out of the innermost herhaal/doe (Python's `break`).
+        // The companion to `als`: test something, then `stop`. No-op outside a loop. (§6.1)
+        Keyword( id: "stop",    kind: Break, doc: "Stop de huidige herhaal/doe-lus meteen en ga verder na de lus. Bijv. `als score groter 100 [ stop ]`." ),
 
         // NEW (this version) — conditionals. Surface-minimal: the comparison words are
         // legal ONLY inside the `als`-header, so no first-class boolean ever escapes (§16).

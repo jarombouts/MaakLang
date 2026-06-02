@@ -300,6 +300,22 @@ impl Engine {
         }
     }
 
+    /// `stop` (§6.1): unwind the execution-frame stack up to and including the nearest enclosing
+    /// loop frame, so execution resumes after that loop. Outside any loop it is a no-op.
+    fn do_stop(&mut self) {
+        let in_loop = self.stack.iter().any(|f| matches!(f.kind, FK::Count { .. } | FK::Unbounded));
+        if !in_loop {
+            return; // no enclosing herhaal/doe → no-op
+        }
+        while let Some(fr) = self.stack.last() {
+            let is_loop = matches!(fr.kind, FK::Count { .. } | FK::Unbounded);
+            self.stack.pop();
+            if is_loop {
+                break;
+            }
+        }
+    }
+
     fn exec_simple(&mut self, toks: &[Token], line: u32, src: &str, out: &mut Vec<Event>) -> Result<(), SchildpadError> {
         if toks.is_empty() {
             return Ok(());
@@ -308,6 +324,13 @@ impl Engine {
             Tok::Maak => self.do_maak(toks, line),
             Tok::Print => self.do_print(toks, line, out),
             Tok::WrapMode => self.do_wrapmode(toks, line, out),
+            Tok::Stop => {
+                if toks.len() > 1 {
+                    return Err(err(line, ErrorKind::UnconsumedTokens { leftover: expr::tok_text(&toks[1].kind) }));
+                }
+                self.do_stop();
+                Ok(())
+            }
             Tok::Random => Err(err(line, ErrorKind::BareRandom)),
             Tok::Name(_) if matches!(toks.get(1).map(|t| &t.kind), Some(Tok::Op(b'='))) => {
                 self.do_reassign(toks, line, src)
@@ -328,76 +351,102 @@ impl Engine {
     }
 
     // ---- maak ----------------------------------------------------------------
+    // `maak` is positional only around `=` (LANGUAGE.md §4): everything LEFT of `=` (or the
+    // whole tail when there is no `=`) is the binding target — exactly one name plus an optional
+    // type, in EITHER order — and the value, if any, is whatever follows `=`. Because type words
+    // are reserved (§3.1), the type token can only be the type and the other token can only be
+    // the name, so `maak pietje schildpad` and `maak schildpad pietje` are identical.
     fn do_maak(&mut self, toks: &[Token], line: u32) -> Result<(), SchildpadError> {
-        let name_tok = match toks.get(1) {
-            Some(t) => t,
-            None => return Err(err(line, ErrorKind::MaakNeedsName)),
+        let tail = &toks[1..];
+        if tail.is_empty() {
+            return Err(err(line, ErrorKind::MaakNeedsName));
+        }
+        // split target (left of `=`) from value (right of `=`)
+        let eq = tail.iter().position(|t| t.kind == Tok::Op(b'='));
+        let (target, value_toks) = match eq {
+            Some(i) => (&tail[..i], Some(&tail[i + 1..])),
+            None => (tail, None),
         };
-        let raw = match &name_tok.kind {
-            Tok::Name(raw) => raw.clone(),
-            Tok::Type(_) | Tok::Verb(_) | Tok::Colour(_) | Tok::Osc(_) | Tok::Env(_) | Tok::Note(_)
-            | Tok::Const(_) | Tok::Maak | Tok::Print | Tok::Random | Tok::Loop(_) | Tok::LoopKeer
-            | Tok::If | Tok::Else | Tok::WrapMode | Tok::Compare(_) => {
-                return Err(err(line, ErrorKind::ReservedAsName { word: expr::tok_text(&name_tok.kind) }))
+
+        // resolve the name/type pair from the target, in any order.
+        let mut name_raw: Option<String> = None;
+        let mut ty: Option<Type> = None;
+        for t in target {
+            match &t.kind {
+                Tok::Type(tt) => {
+                    if ty.is_some() {
+                        // a second type word where the name belongs → reserved word used as a name
+                        return Err(err(line, ErrorKind::ReservedAsName { word: expr::tok_text(&t.kind) }));
+                    }
+                    ty = Some(*tt);
+                }
+                Tok::Name(raw) => {
+                    if name_raw.is_some() {
+                        return Err(err(line, ErrorKind::MaakNotUnderstood {
+                            src: joined_src(toks),
+                            name: name_raw.unwrap(),
+                        }));
+                    }
+                    name_raw = Some(raw.clone());
+                }
+                // reserved non-type words can never be a name
+                Tok::Verb(_) | Tok::Colour(_) | Tok::Osc(_) | Tok::Env(_) | Tok::Note(_)
+                | Tok::Const(_) | Tok::Maak | Tok::Print | Tok::Random | Tok::Loop(_)
+                | Tok::LoopKeer | Tok::If | Tok::Else | Tok::Stop | Tok::WrapMode | Tok::Compare(_) => {
+                    return Err(err(line, ErrorKind::ReservedAsName { word: expr::tok_text(&t.kind) }));
+                }
+                // numbers, strings, operators, parens — not a nameable word (`maak 0 = …`)
+                _ => return Err(err(line, ErrorKind::MaakNameNotAWord { word: expr::tok_text(&t.kind) })),
             }
-            _ => return Err(err(line, ErrorKind::MaakNeedsName)),
+        }
+
+        let raw = match name_raw {
+            Some(r) => r,
+            None => {
+                // a lone type word (`maak schildpad`) reads as a reserved word used as a name;
+                // nothing at all is just a missing name.
+                return Err(match ty {
+                    Some(t) => err(line, ErrorKind::ReservedAsName { word: t.nl().to_string() }),
+                    None => err(line, ErrorKind::MaakNeedsName),
+                });
+            }
         };
         let r = resolve_name(&raw, &self.env, line)?;
         let name = r.name;
-        let rest = &toks[2..];
 
-        if rest.is_empty() {
-            self.env.set(Binding { ty: Type::Nil, value: Value::Nil, name });
-            return Ok(());
-        }
-
-        match &rest[0].kind {
-            Tok::Type(t) => {
-                let t = *t;
-                // optional `= expr`
-                let assign = rest.get(1).map(|x| &x.kind) == Some(&Tok::Op(b'='));
-                match t {
-                    Type::Schildpad => {
-                        let id = self.summon(&name);
-                        self.env.set(Binding { ty: Type::Schildpad, value: Value::Schildpad(id), name });
-                    }
-                    Type::Deuntje => {
-                        let value = if assign {
-                            Value::Deuntje(self.gather_deuntje(&rest[2..], line)?)
-                        } else {
-                            Value::Nil
-                        };
-                        self.env.set(Binding { ty: Type::Deuntje, value, name });
-                    }
-                    _ => {
-                        let value = if assign {
-                            let v = expr::eval(&rest[2..], &self.env, line)?;
-                            coerce_to(t, v, line)?
-                        } else {
-                            Value::Nil
-                        };
-                        self.env.set(Binding { ty: t, value, name });
-                    }
+        // ---- bind ----
+        match ty {
+            None => match value_toks {
+                None => self.env.set(Binding { ty: Type::Nil, value: Value::Nil, name }),
+                Some(vals) => {
+                    let v = expr::eval(vals, &self.env, line)?;
+                    let ty = v.type_of();
+                    self.env.set(Binding { ty, value: v, name });
                 }
-                Ok(())
-            }
-            Tok::Op(b'=') => {
-                let v = expr::eval(&rest[1..], &self.env, line)?;
-                let ty = v.type_of();
-                self.env.set(Binding { ty, value: v, name });
-                Ok(())
-            }
-            _ => {
-                let mut s = String::new();
-                for t in toks {
-                    if !s.is_empty() {
-                        s.push(' ');
-                    }
-                    s.push_str(&expr::tok_text(&t.kind));
+            },
+            Some(Type::Schildpad) => {
+                if value_toks.is_some() {
+                    return Err(err(line, ErrorKind::MaakNotUnderstood { src: joined_src(toks), name }));
                 }
-                Err(err(line, ErrorKind::MaakNotUnderstood { src: s, name }))
+                let id = self.summon(&name);
+                self.env.set(Binding { ty: Type::Schildpad, value: Value::Schildpad(id), name });
+            }
+            Some(Type::Deuntje) => {
+                let value = match value_toks {
+                    Some(vals) => Value::Deuntje(self.gather_deuntje(vals, line)?),
+                    None => Value::Nil,
+                };
+                self.env.set(Binding { ty: Type::Deuntje, value, name });
+            }
+            Some(t) => {
+                let value = match value_toks {
+                    Some(vals) => coerce_to(t, expr::eval(vals, &self.env, line)?, line)?,
+                    None => Value::Nil,
+                };
+                self.env.set(Binding { ty: t, value, name });
             }
         }
+        Ok(())
     }
 
     fn summon(&mut self, name: &str) -> usize {
@@ -615,6 +664,18 @@ impl Engine {
 
 fn norm_deg(d: i64) -> i64 {
     ((d % 360) + 360) % 360
+}
+
+/// Best-effort source reconstruction from tokens, for error messages.
+fn joined_src(toks: &[Token]) -> String {
+    let mut s = String::new();
+    for t in toks {
+        if !s.is_empty() {
+            s.push(' ');
+        }
+        s.push_str(&expr::tok_text(&t.kind));
+    }
+    s
 }
 
 fn num_of(v: &Value, line: u32) -> Result<f64, SchildpadError> {

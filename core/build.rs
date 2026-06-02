@@ -60,7 +60,7 @@ struct Note { id: String, freq_hz: f64 }
 struct Keyword { id: String, kind: KwKind }
 
 #[derive(Deserialize, Clone, Copy)]
-enum KwKind { Maak, Print, Loop, LoopAux, If, Else, Compare, WrapMode }
+enum KwKind { Maak, Print, Loop, LoopAux, If, Else, Compare, WrapMode, Break }
 
 /// Map a vocab type-id string to the core `Type` enum variant path. Panics on an unknown
 /// id so a typo in the spec fails the build instead of silently dropping a slot.
@@ -90,6 +90,7 @@ fn kw_variant(k: KwKind) -> &'static str {
         KwKind::Else => "KwKind::Else",
         KwKind::Compare => "KwKind::Compare",
         KwKind::WrapMode => "KwKind::WrapMode",
+        KwKind::Break => "KwKind::Break",
     }
 }
 

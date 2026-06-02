@@ -22,6 +22,7 @@ pub enum Tok {
     WrapMode,
     Loop(&'static str), // herhaal / doe — carries which word, so `doe` ≠ `herhaal`
     LoopKeer,           // keer
+    Stop,               // break out of the innermost loop (§6.1)
     If,
     Else,
     Compare(Cmp),
@@ -195,6 +196,7 @@ fn classify(lower: &str, raw: &str) -> Tok {
                 Print => Tok::Print,
                 Loop => Tok::Loop(if lower == "herhaal" { "herhaal" } else { "doe" }),
                 LoopAux => Tok::LoopKeer,
+                Break => Tok::Stop,
                 If => Tok::If,
                 Else => Tok::Else,
                 WrapMode => Tok::WrapMode,
