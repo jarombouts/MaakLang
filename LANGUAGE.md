@@ -1,8 +1,8 @@
-# Schildpad — Language Design & Philosophy
+# Maak — Language Design & Philosophy
 
-> The programming language inside the Schildpad playground. This document is for whoever implements the interpreter/runtime (likely Claude Code). It is the source of truth for semantics. Read `DESIGN_BRIEF.md` for the UI; you don't need it to build the language, but the two must agree on the transport model (§9) and the error surface (§8). Read `ARCHITECTURE.md` for how the runtime is actually built (one Rust core, a command stream, the framebuffer/audio/embedded story); this document stays the source of truth for the *language*, that one for the *machine*.
+> The programming language inside the playground. This document is for whoever implements the interpreter/runtime (likely Claude Code). It is the source of truth for semantics. Read `DESIGN_BRIEF.md` for the UI; you don't need it to build the language, but the two must agree on the transport model (§9) and the error surface (§8). Read `ARCHITECTURE.md` for how the runtime is actually built (one Rust core, a command stream, the framebuffer/audio/embedded story); this document stays the source of truth for the *language*, that one for the *machine*.
 
-The language has no official name. Internally call it `schildpad`. Keywords are **Dutch and reserved**. There is one set of keywords; localisation comes later, if ever.
+ Keywords are **Dutch and reserved**. There is one set of keywords; localisation comes later, if ever.
 
 > **This-version additions.** §§1–12 are the original tightly-scoped design and remain the
 > backbone. §§13–15 add three things decided after the first interactive prototype: an
