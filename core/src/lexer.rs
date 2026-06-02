@@ -31,7 +31,7 @@ pub enum Tok {
     Colour(&'static str),
     Osc(&'static str),
     Env(&'static str),
-    Note(&'static str),
+    Note(&'static str, f32), // (name, duration in beats); `do`=1.0, `do2`=2.0, `do/4`=0.25 (§13)
     Const(&'static str), // links / rechts / stilte — resolve via vocab::constant
     Number(f64),
     Str(String),
@@ -167,6 +167,31 @@ pub fn tokenize(line: &str) -> Vec<Token> {
             }
             let text: String = chars[i..j].iter().collect();
             let lower = text.to_lowercase();
+
+            // note literal with optional duration: `do`, `do2` (2 beats), `do/3` (1/3 beat) — §13
+            if !text.contains('\'') {
+                if let Some((nm, mut beats)) = split_note_beats(&lower) {
+                    // fractional `note/N` only on a BARE note (no integer suffix already present)
+                    if beats == 1.0
+                        && lower.bytes().all(|b| b.is_ascii_alphabetic())
+                        && j + 1 < n
+                        && chars[j] == '/'
+                        && chars[j + 1].is_ascii_digit()
+                    {
+                        let mut k = j + 1;
+                        while k < n && chars[k].is_ascii_digit() {
+                            k += 1;
+                        }
+                        let den: u32 = chars[j + 1..k].iter().collect::<String>().parse().unwrap_or(1);
+                        beats = 1.0 / den.max(1) as f32;
+                        j = k;
+                    }
+                    toks.push(Token { kind: Tok::Note(nm, beats), col: start, len: j - i, ok: true });
+                    i = j;
+                    continue;
+                }
+            }
+
             let kind = classify(&lower, &text);
             toks.push(Token { kind, col: start, len: j - i, ok: true });
             i = j;
@@ -230,8 +255,22 @@ fn classify(lower: &str, raw: &str) -> Tok {
         // note literal, possibly with a trailing duration digit handled by the resolver;
         // here a bare note id matches.
         if let Some((nm, _)) = vocab::NOTES.iter().find(|(w, _)| *w == lower) {
-            return Tok::Note(nm);
+            return Tok::Note(nm, 1.0);
         }
     }
     Tok::Name(raw.to_string())
+}
+
+/// A note name with an optional trailing integer beat-count: `do` → ("do", 1.0), `do2` →
+/// ("do", 2.0). The `note/N` fractional form is handled by the caller (it spans the `/`). Returns
+/// None for a plain identifier, so `dog`, `do_x`, `do2x` stay names (§13).
+fn split_note_beats(lower: &str) -> Option<(&'static str, f32)> {
+    let split = lower.find(|c: char| !c.is_ascii_alphabetic()).unwrap_or(lower.len());
+    let (base, rest) = lower.split_at(split);
+    if !rest.is_empty() && !rest.bytes().all(|b| b.is_ascii_digit()) {
+        return None; // mixed suffix → a plain name, not a note+duration
+    }
+    let (nm, _) = vocab::NOTES.iter().find(|(w, _)| *w == base)?;
+    let beats = if rest.is_empty() { 1.0 } else { rest.parse::<u32>().unwrap_or(1).max(1) as f32 };
+    Some((nm, beats))
 }

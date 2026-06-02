@@ -21,7 +21,7 @@ struct RawEvent: Decodable {
 
 struct RawVoice: Decodable {
     var hz: Float?      // null = a rest (stilte)
-    var beats: Int
+    var beats: Double   // fractional beats (do2 = 2, do/4 = 0.25)
     var osc: String
     var env: String
 }

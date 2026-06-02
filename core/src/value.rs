@@ -50,16 +50,16 @@ impl Value {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Toon {
     pub pitch_hz: Option<f32>,
-    pub beats: u16,
+    pub beats: f32, // duration in beats; `do2` = 2.0, `do/4` = 0.25 (§13)
     pub osc: &'static str,
     pub env: &'static str,
 }
 
 impl Toon {
-    pub fn rest(beats: u16) -> Self {
+    pub fn rest(beats: f32) -> Self {
         Toon { pitch_hz: None, beats, osc: "sinus", env: "kort" }
     }
-    pub fn pitched(hz: f32, beats: u16) -> Self {
+    pub fn pitched(hz: f32, beats: f32) -> Self {
         Toon { pitch_hz: Some(hz), beats, osc: "sinus", env: "kort" }
     }
 }

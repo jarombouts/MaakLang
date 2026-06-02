@@ -4,7 +4,7 @@ import AVFoundation
 /// One note in a sequence (decoded from the core's audio event). `hz == nil` is a rest (stilte).
 struct SynthVoice {
     let hz: Float?
-    let beats: Int
+    let beats: Double   // duration in beats; `do2` = 2.0, `do/4` = 0.25 (§13)
     let osc: String
     let env: String
 }
@@ -53,7 +53,7 @@ final class Synth {
         let beat = 60.0 / Double(max(tempoBPM, 1))
         var samples: [Float] = []
         for v in voices {
-            let dur = beat * Double(max(v.beats, 1))
+            let dur = beat * max(v.beats, 0)
             let n = Int(dur * sampleRate)
             guard n > 0 else { continue }
             if let hz = v.hz, hz > 0 {
@@ -78,7 +78,10 @@ final class Synth {
         samples.withUnsafeBufferPointer { src in
             channel.update(from: src.baseAddress!, count: samples.count)
         }
-        player.scheduleBuffer(buffer, at: nil, options: [], completionHandler: nil)
+        // one play at a time (#52): .interrupts cancels any in-flight buffer rather than
+        // queueing it — so `play` in a loop never builds a minutes-long backlog.
+        player.scheduleBuffer(buffer, at: nil, options: .interrupts, completionHandler: nil)
+        if !player.isPlaying { player.play() }
     }
 
     func stop() {

@@ -80,7 +80,7 @@ fn kind_of(t: &Tok) -> Kind {
         Tok::Verb(_) => Kind::Verb,
         Tok::Type(_) => Kind::Type,
         Tok::Colour(_) => Kind::Colour,
-        Tok::Note(_) => Kind::Note,
+        Tok::Note(..) => Kind::Note,
         Tok::Const(_) | Tok::Osc(_) | Tok::Env(_) => Kind::Value,
         Tok::Number(_) => Kind::Number,
         Tok::Str(_) => Kind::Text,

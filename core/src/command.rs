@@ -47,7 +47,7 @@ pub enum AudioCmd {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Voice {
     pub pitch_hz: Option<f32>, // None = a rest (stilte)
-    pub beats: u16,
+    pub beats: f32,            // duration in beats; `do2` = 2.0, `do/4` = 0.25 (§13)
     pub osc: &'static str,
     pub env: &'static str,
 }

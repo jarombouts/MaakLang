@@ -106,14 +106,14 @@ impl<'a> Parser<'a> {
                 Ok(match vocab::constant(c) {
                     Some(ConstVal::Draai(d)) => Value::Draairichting(d),
                     Some(ConstVal::Getal(n)) => Value::Getal(n as f64),
-                    Some(ConstVal::Rest) => Value::Toon(Toon::rest(1)),
+                    Some(ConstVal::Rest) => Value::Toon(Toon::rest(1.0)),
                     None => Value::Nil,
                 })
             }
-            Tok::Note(name) => {
+            Tok::Note(name, beats) => {
                 self.pos += 1;
                 let hz = vocab::note_freq(name).unwrap_or(440.0);
-                Ok(Value::Toon(Toon::pitched(hz, 1)))
+                Ok(Value::Toon(Toon::pitched(hz, beats)))
             }
             Tok::Colour(c) => {
                 self.pos += 1;
@@ -217,7 +217,8 @@ pub fn tok_text(t: &Tok) -> alloc::string::String {
         Tok::LBracket => "[".to_string(),
         Tok::RBracket => "]".to_string(),
         Tok::Name(s) => s.clone(),
-        Tok::Verb(s) | Tok::Colour(s) | Tok::Osc(s) | Tok::Env(s) | Tok::Note(s) | Tok::Const(s) => s.to_string(),
+        Tok::Verb(s) | Tok::Colour(s) | Tok::Osc(s) | Tok::Env(s) | Tok::Const(s) => s.to_string(),
+        Tok::Note(s, _) => s.to_string(),
         Tok::Type(t) => t.nl().to_string(),
         Tok::Maak => "maak".to_string(),
         Tok::Print => "print".to_string(),

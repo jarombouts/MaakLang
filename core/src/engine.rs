@@ -394,7 +394,7 @@ impl Engine {
                     name_raw = Some(raw.clone());
                 }
                 // reserved non-type words can never be a name
-                Tok::Verb(_) | Tok::Colour(_) | Tok::Osc(_) | Tok::Env(_) | Tok::Note(_)
+                Tok::Verb(_) | Tok::Colour(_) | Tok::Osc(_) | Tok::Env(_) | Tok::Note(..)
                 | Tok::Const(_) | Tok::Maak | Tok::Print | Tok::Random | Tok::Loop(_)
                 | Tok::LoopKeer | Tok::If | Tok::Else | Tok::Stop | Tok::WrapMode | Tok::Compare(_) => {
                     return Err(err(line, ErrorKind::ReservedAsName { word: expr::tok_text(&t.kind) }));
@@ -670,19 +670,19 @@ impl Engine {
         for t in toks {
             match &t.kind {
                 Tok::Verb(_) => continue,
-                Tok::Number(n) => voices.push(Voice { pitch_hz: Some(*n as f32), beats: 1, osc: "sinus", env: "kort" }),
-                Tok::Note(name) => {
+                Tok::Number(n) => voices.push(Voice { pitch_hz: Some(*n as f32), beats: 1.0, osc: "sinus", env: "kort" }),
+                Tok::Note(name, beats) => {
                     let hz = vocab::note_freq(name).unwrap_or(440.0);
-                    voices.push(Voice { pitch_hz: Some(hz), beats: 1, osc: "sinus", env: "kort" });
+                    voices.push(Voice { pitch_hz: Some(hz), beats: *beats, osc: "sinus", env: "kort" });
                 }
                 Tok::Const(c) if matches!(vocab::constant(c), Some(ConstVal::Rest)) => {
-                    voices.push(Voice { pitch_hz: None, beats: 1, osc: "sinus", env: "kort" });
+                    voices.push(Voice { pitch_hz: None, beats: 1.0, osc: "sinus", env: "kort" });
                 }
                 Tok::Random => {
                     if let Some(crate::vocab::Sampler::ChoiceNote(opts)) = sig.sampler {
                         let nm = *self.rng.choice(opts);
                         let hz = vocab::note_freq(nm).unwrap_or(440.0);
-                        voices.push(Voice { pitch_hz: Some(hz), beats: 1, osc: "sinus", env: "kort" });
+                        voices.push(Voice { pitch_hz: Some(hz), beats: 1.0, osc: "sinus", env: "kort" });
                     }
                 }
                 Tok::Name(raw) => {
@@ -715,9 +715,9 @@ impl Engine {
         let mut voices = Vec::new();
         for t in toks {
             match &t.kind {
-                Tok::Note(name) => voices.push(Toon::pitched(vocab::note_freq(name).unwrap_or(440.0), 1)),
-                Tok::Number(n) => voices.push(Toon::pitched(*n as f32, 1)),
-                Tok::Const(c) if matches!(vocab::constant(c), Some(ConstVal::Rest)) => voices.push(Toon::rest(1)),
+                Tok::Note(name, beats) => voices.push(Toon::pitched(vocab::note_freq(name).unwrap_or(440.0), *beats)),
+                Tok::Number(n) => voices.push(Toon::pitched(*n as f32, 1.0)),
+                Tok::Const(c) if matches!(vocab::constant(c), Some(ConstVal::Rest)) => voices.push(Toon::rest(1.0)),
                 _ => return Err(err(line, ErrorKind::UnconsumedTokens { leftover: expr::tok_text(&t.kind) })),
             }
         }

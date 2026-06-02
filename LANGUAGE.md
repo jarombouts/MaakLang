@@ -424,10 +424,23 @@ play stilte do stilte do                 # rests between notes
 
 A run of bare note literals in a `deuntje`/`play` slot is **gathered** into the sequence (the first
 variadic slot in the language — mechanical, but write its errors precisely: "play wil noten of een
-deuntje"). Note literals use **solfège** (`do re mi fa sol la si`); a trailing number is **duration
-in beats** (`do2` = held two beats). *(Both of these — solfège vs letters, beats vs octave — are
-flagged as open decisions in `ROADMAP.md`; solfège avoids colliding with the single-letter variable
-names §8's own examples use.)*
+deuntje"). Note literals use **solfège** (`do re mi fa sol la si`).
+
+**Duration (implemented).** A note carries an optional duration suffix, attached with no space:
+
+```
+do        # 1 beat (the default)
+do2       # 2 beats — a trailing whole number = beats
+do/2      # half a beat — `/N` = one-N-th of a beat (do/3, do/4, …)
+play do2 re mi/2 sol/4   # mix freely
+```
+
+So a trailing number means **beats, not octave** (decided + built; #43). The lexer reads `do2` /
+`do/4` as a *single* note token (not `do` + `2`), so `do2` can no longer be a variable name — but a
+lookalike like `dog` (base isn't a note) stays an ordinary name, and `x/2` (non-note) stays division.
+A raw `getal` in a `play` slot (`play 440`) and `stilte` are 1 beat; per-rest duration isn't wired
+yet. Tempo is a fixed 120 bpm for now. Solfège (not `a b c`) avoids colliding with the single-letter
+variable names §8's own examples use.
 
 **`play` is an ordinary verb** (one slot accepting `deuntje | toon | getal`), so it gets free-order
 resolution and slot-introspection for the help-bar for free, and `play random` samples uniformly

@@ -318,6 +318,40 @@ mod tests {
         assert!(!s.ok, "an unclosed string must be marked suspect");
     }
 
+    // ---- note durations (LANGUAGE.md §13) -------------------------------------
+
+    fn audio_beats(events: &[Event]) -> Vec<f32> {
+        events
+            .iter()
+            .find_map(|e| match e {
+                Event::Audio(AudioCmd::Sequence { voices, .. }) => Some(voices.iter().map(|v| v.beats).collect()),
+                _ => None,
+            })
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn note_durations_whole_and_fractional() {
+        // `do2` = 2 beats, bare = 1, `do/2` = half, `mi/4` = quarter
+        let (events, err) = run("play do2 re do/2 mi/4");
+        assert!(err.is_none(), "{err:?}");
+        assert_eq!(audio_beats(&events), alloc::vec![2.0, 1.0, 0.5, 0.25]);
+    }
+
+    #[test]
+    fn note_durations_carry_through_a_deuntje() {
+        let (events, err) = run("maak liedje deuntje = do2 re mi/2\nplay liedje");
+        assert!(err.is_none(), "{err:?}");
+        assert_eq!(audio_beats(&events), alloc::vec![2.0, 1.0, 0.5]);
+    }
+
+    #[test]
+    fn note_lookalike_names_are_not_durations() {
+        // `dog` is a plain name, not `do`+`g`; making a turtle called `dog` must still work.
+        let (_, err) = run("maak dog schildpad\nvooruit 10 dog");
+        assert!(err.is_none(), "{err:?}");
+    }
+
     #[test]
     fn deterministic_replay_with_seed() {
         let mut e = Engine::new();
