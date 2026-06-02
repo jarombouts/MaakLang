@@ -20,7 +20,6 @@ struct ContentView: View {
                 Divider().background(Color.white.opacity(0.1))
                 viewport
                     .frame(maxWidth: .infinity)
-                    .background(Color.black)
             }
         }
         .background(Color(white: 0.06))
@@ -59,7 +58,7 @@ struct ContentView: View {
                     .background(Color(white: 0.12))
             }
 
-            KeyboardPalette(bridge: bridge)
+            SuggestionBar(bridge: bridge)
 
             transport
         }
@@ -91,27 +90,35 @@ struct ContentView: View {
     // MARK: viewport (framebuffer + turtle sprites)
 
     private var viewport: some View {
-        GeometryReader { geo in
-            let scale = min(geo.size.width / LOGICAL_W, geo.size.height / LOGICAL_H)
-            let dw = LOGICAL_W * scale, dh = LOGICAL_H * scale
-            let ox = (geo.size.width - dw) / 2, oy = (geo.size.height - dh) / 2
-            ZStack(alignment: .topLeading) {
-                Color.black
-                // re-key on frameVersion so the CGImage rebuilds when pixels change
-                if let cg = sp.fb.makeImage() {
-                    Image(decorative: cg, scale: 1)
-                        .interpolation(.none)
-                        .resizable()
+        ZStack {
+            Color(white: 0.11) // grey gutter so the canvas isn't jammed against the editor
+            GeometryReader { geo in
+                let scale = min(geo.size.width / LOGICAL_W, geo.size.height / LOGICAL_H)
+                let dw = LOGICAL_W * scale, dh = LOGICAL_H * scale
+                let ox = (geo.size.width - dw) / 2, oy = (geo.size.height - dh) / 2
+                ZStack(alignment: .topLeading) {
+                    // re-key on frameVersion so the CGImage rebuilds when pixels change
+                    if let cg = sp.fb.makeImage() {
+                        Image(decorative: cg, scale: 1)
+                            .interpolation(.none)
+                            .resizable()
+                            .frame(width: dw, height: dh)
+                            .offset(x: ox, y: oy)
+                            .id(sp.frameVersion)
+                    }
+                    // a crisp edge so the black canvas reads as a distinct object in the grey gutter
+                    Rectangle()
+                        .strokeBorder(Color(white: 0.22), lineWidth: 1)
                         .frame(width: dw, height: dh)
                         .offset(x: ox, y: oy)
-                        .id(sp.frameVersion)
-                }
-                ForEach(sp.sprites) { s in
-                    TurtleMarker(heading: s.heading, color: Palette.color(tintName(s.tint)))
-                        .frame(width: 16, height: 16)
-                        .offset(x: ox + CGFloat(s.x) * scale - 8, y: oy + CGFloat(s.y) * scale - 8)
+                    ForEach(sp.sprites) { s in
+                        TurtleMarker(heading: s.heading, color: Palette.color(tintName(s.tint)))
+                            .frame(width: 16, height: 16)
+                            .offset(x: ox + CGFloat(s.x) * scale - 8, y: oy + CGFloat(s.y) * scale - 8)
+                    }
                 }
             }
+            .padding(24)
         }
     }
 

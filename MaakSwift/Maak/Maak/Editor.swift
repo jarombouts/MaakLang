@@ -59,53 +59,111 @@ struct CodeEditor: UIViewRepresentable {
     }
 }
 
-/// The chunky on-screen key palette (DESIGN_BRIEF §6): the verbs/keywords/colours/symbols a
-/// child reaches for, as big tappable keys that insert at the cursor — a scaffold, never a
-/// replacement for typing. (The word lists should later be generated from vocab.ron, issue #30.)
-struct KeyboardPalette: View {
-    let bridge: EditorBridge
+/// Recently-used words, persisted, newest first. (The seed of the §2.1 "what fits next"
+/// help; true context-awareness arrives with core::introspect, #28.)
+final class RecentWords: ObservableObject {
+    @Published var list: [String]
+    private let key = "maak.recentWords"
+    init() { list = UserDefaults.standard.stringArray(forKey: key) ?? [] }
+    func bump(_ w: String) {
+        list.removeAll { $0 == w }
+        list.insert(w, at: 0)
+        if list.count > 16 { list.removeLast() }
+        UserDefaults.standard.set(list, forKey: key)
+    }
+}
 
-    private let verbs = ["maak", "vooruit", "draai", "pen", "herhaal", "print", "play", "penomhoog", "penomlaag", "achteruit", "doe", "als"]
-    private let words = ["links", "rechts", "random", "stilte"]
-    private let types = ["schildpad", "getal", "draairichting", "toon", "deuntje"]
-    private let colours = ["rood", "groen", "blauw", "geel", "wit", "oranje", "paars", "cyaan", "roze", "zwart"]
-    private let symbols = ["=", "\"", "(", ")", "+", "-", "*", "/"]
-    private let digits = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
+/// The suggestion bar (DESIGN_BRIEF §6): ONE scrollable row of recently-used + common words,
+/// capped at 10, then a ••• pill that opens the full catalogue. Inserts at the cursor — a
+/// scaffold, never a replacement for typing. Digits/symbols are omitted: the system keyboard
+/// already has them. The word lists should later be generated from vocab.ron (#30).
+struct SuggestionBar: View {
+    let bridge: EditorBridge
+    @StateObject private var recents = RecentWords()
+    @State private var showAll = false
+
+    static let groups: [(String, [String])] = [
+        ("werkwoorden", ["maak", "vooruit", "achteruit", "draai", "pen", "penomhoog", "penomlaag", "print", "herhaal", "doe", "keer", "play", "als", "anders", "wrapmode"]),
+        ("woorden", ["links", "rechts", "random", "stilte"]),
+        ("types", ["schildpad", "getal", "draairichting", "toon", "deuntje"]),
+        ("kleuren", ["rood", "groen", "blauw", "geel", "wit", "zwart", "oranje", "paars", "cyaan", "roze"]),
+        ("klanken", ["sinus", "blok", "zaag", "driehoek", "do", "re", "mi", "fa", "sol", "la", "si"]),
+    ]
+    static let allFlat: [String] = groups.flatMap { $0.1 }
+    static let defaults = ["maak", "vooruit", "draai", "pen", "herhaal", "links", "rechts", "schildpad"]
+
+    private var displayed: [String] {
+        var seen = Set<String>(); var out: [String] = []
+        for w in recents.list + Self.defaults + Self.allFlat {
+            if seen.insert(w).inserted { out.append(w) }
+            if out.count == 10 { break }
+        }
+        return out
+    }
+
+    private func tap(_ w: String) { bridge.insert(w + " "); recents.bump(w) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            row(verbs) { key($0, tint: Color(white: 0.20)) }
-            row(words + types) { key($0, tint: Color(white: 0.16)) }
-            row(colours) { key($0, tint: Palette.color($0).opacity(0.45)) }
-            HStack(spacing: 6) {
-                ForEach(symbols, id: \.self) { key($0, mono: true) }
-                ForEach(digits, id: \.self) { key($0, mono: true) }
-                Button(action: { bridge.backspace() }) {
-                    Image(systemName: "delete.left").frame(width: 38, height: 38)
-                        .background(Color(white: 0.18)).cornerRadius(8)
-                }.buttonStyle(.plain).foregroundStyle(.white)
-            }
-        }
-        .padding(8)
-        .background(Color(white: 0.04))
-    }
-
-    private func row<V: View>(_ items: [String], @ViewBuilder _ make: @escaping (String) -> V) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) { ForEach(items, id: \.self) { make($0) } }
+            HStack(spacing: 8) {
+                ForEach(displayed, id: \.self) { w in WordPill(word: w) { tap(w) } }
+                Button { showAll = true } label: {
+                    Text("•••").font(.system(.body, design: .monospaced))
+                        .frame(minWidth: 48, minHeight: 40)
+                        .background(Color(white: 0.24)).cornerRadius(9)
+                }
+                .buttonStyle(.plain).foregroundStyle(.white)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 8)
+        }
+        .background(Color(white: 0.04))
+        .sheet(isPresented: $showAll) {
+            AllWordsSheet { tap($0); showAll = false }
         }
     }
+}
 
-    private func key(_ s: String, tint: Color = Color(white: 0.16), mono: Bool = false) -> some View {
-        Button(action: { bridge.insert(mono ? s : s + " ") }) {
-            Text(s)
-                .font(.system(mono ? .title3 : .body, design: .monospaced))
-                .padding(.horizontal, mono ? 0 : 12)
-                .frame(minWidth: mono ? 38 : 44, minHeight: 38)
-                .background(tint)
-                .cornerRadius(8)
+private struct WordPill: View {
+    let word: String
+    let action: () -> Void
+    var body: some View {
+        let colour = Palette.isColour(word)
+        Button(action: action) {
+            Text(word)
+                .font(.system(.body, design: .monospaced))
+                .padding(.horizontal, 14).frame(minHeight: 40)
+                .background(colour ? Palette.color(word).opacity(0.55) : Color(white: 0.17))
+                .cornerRadius(9)
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(.white)
+        .buttonStyle(.plain).foregroundStyle(.white)
+    }
+}
+
+/// The full catalogue, grouped and scrollable — handles a great many items gracefully.
+struct AllWordsSheet: View {
+    let pick: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+    private let cols = [GridItem(.adaptive(minimum: 100), spacing: 8)]
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    ForEach(SuggestionBar.groups, id: \.0) { title, words in
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(title).font(.system(.headline, design: .monospaced)).foregroundStyle(.secondary)
+                            LazyVGrid(columns: cols, alignment: .leading, spacing: 8) {
+                                ForEach(words, id: \.self) { w in WordPill(word: w) { pick(w) } }
+                            }
+                        }
+                    }
+                }
+                .padding(16)
+            }
+            .navigationTitle("kies iets")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("klaar") { dismiss() } } }
+        }
+        .preferredColorScheme(.dark)
     }
 }

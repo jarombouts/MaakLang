@@ -20,6 +20,8 @@ enum Palette {
 
     static func rgba(_ name: String) -> UInt32 { table[name] ?? 0xFFFFFFFF }
 
+    static func isColour(_ name: String) -> Bool { table[name] != nil }
+
     static func color(_ name: String) -> Color {
         let v = rgba(name)
         return Color(
