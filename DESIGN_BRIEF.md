@@ -71,6 +71,7 @@ What makes it child-usable instead of an intimidating IDE:
 - **Big, friendly monospace.** Generous line height. A child reading effortfully needs air between lines.
 - **Line numbers**, subtle. They exist because error messages refer to them ("op regel 4…") and because the transport highlights the current line. They are not decoration.
 - **Live syntax highlighting that is also gentle error feedback.** As the child types, tokens are coloured by kind: verbs, names, types, numbers, strings, the magic word `maak`. Mechanical mistakes — a misspelled keyword, an unclosed quote, a stray character — show as a soft, non-alarming underline or desaturation *the instant they appear*, before anything runs. This is not a red-squiggle scolding. It is the editor quietly saying "this word isn't one I know yet." The visual weight of this must be low. A six-year-old hits one harsh red wall and deflates.
+- **The machine never rewrites what the child typed.** No auto-capitalisation, no reformatting, no case-correction. The editor *colours* tokens but never *changes* them. (Considered and rejected: auto-Title-casing user names so they stand out. It would make the machine silently alter your text, which breaks the one promise — that it does exactly what you said. Colour carries the keyword-vs-name distinction instead, non-destructively.) **The colour-by-kind scheme is shared everywhere the language appears** — a verb is the same colour in the editor *and* on its key in the on-screen palette (§6), so the child learns one colour-vocabulary, not two.
 - **The current line, during playback, is highlighted** — a calm full-width band — so both people can see "the machine is reading *this* line right now." This is the single most important affordance for joint attention on the couch.
 - **Generous autocomplete / suggestion**, but presented as low-pressure options, not aggressive pop-ins that fight the child's typing. When he's typed `voo`, gently offer `vooruit`. Tab or tap to accept. Never auto-replace what he typed without an explicit accept.
 
@@ -119,8 +120,10 @@ Two cases, both required:
 Design a **custom input accessory bar** that sits above (or replaces, your call) the system keyboard and surfaces the things the language actually needs, as big tappable keys:
 
 - the core **verbs and keywords** the child uses constantly: `maak`, `vooruit`, `draai`, `links`, `rechts`, `pen`, `print`, `herhaal`, `random`, the colour names, the type names (`schildpad`, `getal`, `draairichting`).
-- the **symbols** that are fine-motor nightmares to find: `=`, `"`, `[`, `]`, `(`, `)`, and digits.
-- These are a scaffold, **not a replacement for typing.** The child can always type the letters. The palette removes the friction of *hunting* for a buried symbol, so the experiment isn't sabotaged by the keyboard. Think of it as training wheels that don't stop you from pedalling.
+- **Coloured by kind, matching the editor (§3).** A verb key is the same colour as that verb in the code; a colour name (`rood`, `blauw`) carries its own hue. One colour-vocabulary across palette and editor.
+- **Recently-used first, capped, with a "see all".** Show roughly the ten most-relevant keys (recently-used + common starters) in the bar; a `•••` key opens a calm modal with the *full* catalogue grouped by kind (verbs, words, types, colours, sounds). Keeps the bar uncluttered while making every word reachable as the vocabulary grows past what fits in a row.
+- **Symbols are mostly the system keyboard's job.** On iPad the on-screen keyboard already has digits and `( ) + - * / =`, so the palette does **not** duplicate a number/symbol row — it surfaces only genuinely-buried symbols if play-testing shows a child can't find them. The palette's value is the *language words*, not re-implementing a number pad.
+- These are a scaffold, **not a replacement for typing.** The child can always type the letters; the palette removes the friction of *hunting*. Training wheels that don't stop you pedalling.
 
 Make this palette feel like part of the toy, not like an enterprise toolbar. Chunky keys, satisfying press states, organised so the most-used verbs are biggest and closest.
 

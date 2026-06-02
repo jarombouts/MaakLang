@@ -141,14 +141,14 @@ The whole language should be expressible in a handful of sentence shapes. Shape-
 
 ```
 <verb> <slots in any order>     # vooruit 100 pietje ; pietje vooruit 100 ; draai pietje links
-maak <naam> <type>              # maak pietje schildpad
-maak <naam> = <expr>            # maak score = 0
-maak <naam> <type> = <expr>     # maak schuin draairichting = 45
+maak <naam> [<type>]            # maak pietje schildpad ; maak schildpad pietje  (naam/type: any order)
+maak <naam>|<type> = <expr>     # maak score = 0 ; maak Score getal = 0 ; maak getal Score = 0
 print <expr>                    # print a + b
 <naam> = <expr>                 # score = score + 1   (reassign existing binding; see §8)
 herhaal <getal> [ <stmts> ]     # bounded loop
 doe <getal> keer [ <stmts> ]    # synonym surface form of herhaal (see §6)
 doe [ <stmts> ]                 # unbounded loop (relies on transport Step/Pause to be tractable)
+stop                            # break out of the innermost herhaal/doe (see §6)
 
 # this-version additions (see the noted sections):
 maak <naam> = <verb> <some slots>            # curry-named function — just the <expr> form with a
@@ -166,7 +166,7 @@ only genuinely new *shapes* this version adds are `als` and `anders` (§15). Hol
 
 That's it. Everything the child does is one of these. The first shape — a verb and its typed slots — is **order-free** (§2): the slots resolve by type, so `pietje pen rood`, `pen rood pietje`, `pen pietje rood` are all the same statement. There is **no separate `=` form for verbs** — you don't write `pietje pen = rood`, because `pietje pen rood` already works and adding `=` would be a second syntax for the same act. One shape, any order.
 
-**`maak` is the carved-out exception: it stays positional.** `maak <naam> <type>` and `maak <naam> = <expr>` are *not* order-free — `maak draairichting schuin` must not become a way to declare `schuin`. `maak` is already the special polymorphic gateway word for bringing things into existence; it keeps fixed positional forms. Free-order resolution applies to *verb statements*, never to summoning. Arithmetic expressions nest inside the `<expr>` and slot positions with normal infix precedence and parentheses.
+**`maak` is positional only around `=`; the name and type are order-free.** Everything to the *left* of `=` (or the whole tail, if there is no `=`) is the binding target: exactly one new **name** plus an optional **type**, in either order. Because type names are reserved (§3.1), the type token can *only* be the type and the other token can *only* be the name — so `maak pietje schildpad` and `maak schildpad pietje` are identical, as are `maak Score getal = 0` and `maak getal Score = 0`. This is the same type-driven resolution the verbs use (§2), now applied to the name/type pair. What stays fixed is the **value**: it is whatever follows `=`, on the right. `maak 0 = score` is illegal — the left of `=` must be a nameable word, not a value — and a reserved word can never be the name. (The value's position is fixed precisely because a value isn't type-matched against a slot; it's the thing being bound, not a slot-filler.) Arithmetic expressions nest inside the `<expr>` and slot positions with normal infix precedence and parentheses.
 
 ---
 
@@ -204,6 +204,18 @@ There are two distinct repeat concepts and they must never be conflated in the i
 - **The transport `Loop` button** — replays the *whole program* from the top, over and over. This is a runtime control, not a language construct. See `DESIGN_BRIEF.md` §5.
 
 `doe [ ... ]` with no count is an **unbounded** loop. It is only tractable because the transport offers **Step** and **Pause** (§9) — the implementation must yield control between iterations frequently enough that Pause/Step actually interrupt a runaway loop. A child *will* write `herhaal 99999` or an unbounded `doe`; the runtime must stay responsive and interruptible. This is a hard requirement, not a nicety.
+
+### 6.1 `stop` — breaking out of a loop *(this-iteration addition)*
+
+`stop` immediately exits the **innermost enclosing `herhaal`/`doe`** and continues after it — Python's `break`. It is the natural companion to `als` (§15): the way you leave a loop early is to test something and `stop`.
+
+```
+doe
+  vooruit 10 pietje
+  als pietje-x groter 300 [ stop ]   # (illustrative; needs a sensor for pietje-x, §11)
+```
+
+Semantics: `stop` unwinds the execution-frame stack up to and including the nearest loop frame; outside any loop it is a no-op (or a gentle error — implementer's call, lean no-op). With unbounded `doe`, `stop` is the *only* in-language way out (otherwise only the transport's Pause stops it). One new keyword, one new statement shape — held to exactly that; there is no `ga door`/`continue`, no labelled break.
 
 ---
 
@@ -313,6 +325,7 @@ Keywords (all reserved, all Dutch):
 - **directions (`draairichting` constants):** `links` (−90), `rechts` (+90).
 - **`random`** — verb-bound sampler (§5).
 - **`herhaal <n> [ ... ]`** / **`doe <n> keer [ ... ]`** / **`doe [ ... ]`** — loops (§6).
+- **`stop`** — break out of the innermost loop (§6.1). *(this-iteration addition)*
 - **type names (reserved):** `schildpad`, `getal`, `draairichting`.
 - **named colours** for `pen`: a small Dutch palette — `rood`, `groen`, `blauw`, `geel`, `wit`, `zwart`, plus a few. (Final palette is a design deliverable; the *names* are the language's, the *values* are the agency's.)
 - **arithmetic:** `+ - * /`, parentheses, normal precedence, operating on `getal`.
@@ -470,6 +483,13 @@ Two semantic commitments, both dictated by the compass:
   is **not** — a multi-statement procedure needs parameters and a notion of "which turtle the body
   applies to," which is real functions with full surface cost (§11, still out). Hold this boundary in
   the parser or it crawls toward ten shapes.
+- **`random` in a curry is a hard error, not a frozen draw.** `maak hoe_ver = vooruit random` is
+  **rejected**. Because capture is snapshot-not-late-bound (above), currying `random` would freeze a
+  *single* draw — every `hoe_ver pietje` would then move the *same* distance — which is almost never
+  what was meant, and "make a reusable random-distance action" only makes sense under the late-binding
+  the compass forbids. So rather than silently freeze a value, the machine errors and points at the
+  inline form: write `vooruit random pietje` directly in your loop to roll each time. (Strict, never
+  fuzzy. Decided in the feedback round; see `ROADMAP.md`.)
 
 Pedagogy (a `DESIGN_BRIEF.md` §6 concern, noted here so the two stay in sync): named actions are
 **kept out of the on-screen keyboard palette and the help-bar**, so the child still discovers

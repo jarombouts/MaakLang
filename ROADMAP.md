@@ -74,6 +74,21 @@ Legend: **[surface]** changes what the child types · **[runtime]** grows the en
 
 ---
 
+## Phase 7 — Feedback round (post-v0.1, decided 2026-06-02)
+
+Decided in conversation after the first device run; logged as GitHub issues. The compass held
+on each (no machine-rewrites-your-text, no spooky late-binding, keep the surface tiny).
+
+- [ ] **`maak` name/type order-free** **[surface]** — resolve the name+type pair in any order *left of `=`* (reserved type-word → type, other token → name); the value stays right of `=`. `maak schildpad pietje` == `maak pietje schildpad`; `maak getal Score = 0` == `maak Score getal = 0`. Reject `maak 0 = …`. (LANGUAGE.md §4)
+- [ ] **`stop`** **[surface]** — break the innermost `herhaal`/`doe`; unwinds the frame stack to the enclosing loop; no-op outside a loop. New keyword (vocab.ron + lexer + engine). The companion to `als`. (LANGUAGE.md §6.1)
+- [ ] **Syntax highlighting in the iPad editor** **[host/tooling]** — expose token spans + kinds over the FFI; colour the editor per kind, with soft (non-alarming) marking of unknown/misspelled tokens. (DESIGN_BRIEF §3)
+- [ ] **One colour-by-kind scheme, shared editor ↔ palette** **[host]** — the same per-kind colours drive editor highlighting AND the suggestion-bar pills + modal (pills are uncoloured today except colour names). **No auto-casing** — colour carries the keyword/name distinction; the machine never rewrites the child's text. (DESIGN_BRIEF §3, §6)
+- [ ] **Curry functions** **[surface]** (= #24) — implement `maak X = <verb> <partial slots>`, snapshot at maak-time; **`random` inside a curry is a hard error** (not a frozen draw), pointing at the inline form. (LANGUAGE.md §14)
+
+Carryover polish already queued: current-line highlight band (§3), host-side audio synth, core-side 8×8 glyph font (#21).
+
+---
+
 ## Decisions still open (flagged in the specs, cheap to change before they're built)
 
 1. **Note literals: solfège (`do re mi …`) vs letters (`a b c …`).** Solfège is the
