@@ -9,7 +9,8 @@
 *.xcuserstate
 xcuserdata/
 DerivedData/
-*.xcframework      # generated from the Rust core; rebuilt by `make ios`
+# the FFI framework is a build artifact — regenerate with MaakSwift/build-xcframework.sh
+*.xcframework
 
 # WASM build output
 /wasm/pkg/

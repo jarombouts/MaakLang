@@ -34,6 +34,19 @@ a stream of draw/audio/error events. The same core powers a **Rust `egui` app**
 embedded screens** (via a C ABI). One machine, identical everywhere, because the whole point
 is a machine you can trust to be the same every time.
 
+## Building the iPad app
+
+The app links `SchildpadFFI.xcframework`, which is a **build artifact** (not committed). Build
+it from the Rust core first, then open the Xcode project:
+
+```
+bash MaakSwift/build-xcframework.sh        # builds device + simulator slices
+open MaakSwift/Maak/Maak.xcodeproj
+```
+
+Re-run the script after any change to `core/` or `ffi-c/`. (Needs the Rust iOS targets:
+`rustup target add aarch64-apple-ios aarch64-apple-ios-sim`.)
+
 ## License
 
 [MIT](LICENSE) © 2026 Jeroen Rombouts / Strange Loop Software / whatever the legal relationship is between 99% clanker-generated code and software licensing.

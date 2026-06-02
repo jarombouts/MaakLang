@@ -1,4 +1,0 @@
-module SchildpadFFI {
-    header "schildpad.h"
-    export *
-}
