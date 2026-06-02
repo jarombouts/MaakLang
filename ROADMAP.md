@@ -79,13 +79,15 @@ Legend: **[surface]** changes what the child types · **[runtime]** grows the en
 Decided in conversation after the first device run; logged as GitHub issues. The compass held
 on each (no machine-rewrites-your-text, no spooky late-binding, keep the surface tiny).
 
-- [ ] **`maak` name/type order-free** **[surface]** — resolve the name+type pair in any order *left of `=`* (reserved type-word → type, other token → name); the value stays right of `=`. `maak schildpad pietje` == `maak pietje schildpad`; `maak getal Score = 0` == `maak Score getal = 0`. Reject `maak 0 = …`. (LANGUAGE.md §4)
-- [ ] **`stop`** **[surface]** — break the innermost `herhaal`/`doe`; unwinds the frame stack to the enclosing loop; no-op outside a loop. New keyword (vocab.ron + lexer + engine). The companion to `als`. (LANGUAGE.md §6.1)
-- [ ] **Syntax highlighting in the iPad editor** **[host/tooling]** — expose token spans + kinds over the FFI; colour the editor per kind, with soft (non-alarming) marking of unknown/misspelled tokens. (DESIGN_BRIEF §3)
-- [ ] **One colour-by-kind scheme, shared editor ↔ palette** **[host]** — the same per-kind colours drive editor highlighting AND the suggestion-bar pills + modal (pills are uncoloured today except colour names). **No auto-casing** — colour carries the keyword/name distinction; the machine never rewrites the child's text. (DESIGN_BRIEF §3, §6)
-- [ ] **Curry functions** **[surface]** (= #24) — implement `maak X = <verb> <partial slots>`, snapshot at maak-time; **`random` inside a curry is a hard error** (not a frozen draw), pointing at the inline form. (LANGUAGE.md §14)
+- [x] **`maak` name/type order-free** **[surface]** — resolve the name+type pair in any order *left of `=`* (reserved type-word → type, other token → name); the value stays right of `=`. `maak schildpad pietje` == `maak pietje schildpad`; `maak getal Score = 0` == `maak Score getal = 0`. Reject `maak 0 = …`. (LANGUAGE.md §4) — *done 5580f16 (#47)*
+- [x] **`stop`** **[surface]** — break the innermost `herhaal`/`doe`; unwinds the frame stack to the enclosing loop; no-op outside a loop. New keyword (vocab.ron + lexer + engine). The companion to `als`. (LANGUAGE.md §6.1) — *done 5580f16 (#48)*
+- [x] **Syntax highlighting in the iPad editor** **[host/tooling]** — expose token spans + kinds over the FFI; colour the editor per kind, with soft (non-alarming) marking of unknown/misspelled tokens. (DESIGN_BRIEF §3) — *done 76bb941 (core) + d361b45 (host) (#49)*
+- [x] **One colour-by-kind scheme, shared editor ↔ palette** **[host]** — the same per-kind colours drive editor highlighting AND the suggestion-bar pills + modal (pills are uncoloured today except colour names). **No auto-casing** — colour carries the keyword/name distinction; the machine never rewrites the child's text. (DESIGN_BRIEF §3, §6) — *done d361b45 (#50)*
+- [x] **Curry functions** **[surface]** (= #24) — implement `maak X = <verb> <partial slots>`, snapshot at maak-time; **`random` inside a curry is a hard error** (not a frozen draw), pointing at the inline form. (LANGUAGE.md §14) — *done 0652e8e (#24)*
 
-Carryover polish already queued: current-line highlight band (§3), host-side audio synth, core-side 8×8 glyph font (#21).
+Carryover polish: **current-line highlight band** (§3) — *done d361b45 (#51)*; **host-side audio synth** — *done d361b45 + ce861bf (#52)*; core-side 8×8 glyph font (#21) — *still open*.
+
+Phase 7 is complete: the whole stack (Rust core → C ABI → xcframework → SwiftUI) was rebuilt and verified running on the iPad simulator — order-free `maak`, curry, gold-coloured notes, the current-line band, and crash-free audio all confirmed end-to-end.
 
 ---
 
