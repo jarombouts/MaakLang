@@ -20,15 +20,16 @@ use crate::rng::Rng;
 use crate::value::{TurtleId, Value};
 use crate::vocab::{self, ConstVal, Sampler, Type, VerbSig};
 
-/// A partially-applied verb — a curry-named function value (Phase 3).
+/// A partially-applied verb — a curry-named function value (LANGUAGE.md §14). The captured
+/// slots are a SNAPSHOT taken at `maak`-time (never late-bound); invoking fills the rest.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PartialFrame {
     pub verb: &'static str,
-    // Phase 3: snapshot of slots filled at `maak`-time.
+    pub slots: SlotValues,
 }
 
 /// The slot values needed to fire a turtle verb.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct SlotValues {
     pub getal: Option<f64>,
     pub draai: Option<i64>,
@@ -121,7 +122,13 @@ pub fn resolve_turtle_verb(
         })?);
     }
 
-    // every declared slot must be filled (precise "what's missing" errors)
+    ensure_full(sig, &sv, line)?;
+    Ok(sv)
+}
+
+/// Every declared slot must be filled, with a precise "what's missing" error otherwise. Used
+/// both by direct verb statements and by curry invocation (LANGUAGE.md §2, §14).
+pub fn ensure_full(sig: &VerbSig, sv: &SlotValues, line: u32) -> Result<(), SchildpadError> {
     for slot in sig.slots {
         let present = match slot {
             Type::Getal => sv.getal.is_some(),
@@ -133,6 +140,97 @@ pub fn resolve_turtle_verb(
         if !present {
             return Err(missing_slot_error(sig, *slot, line));
         }
+    }
+    Ok(())
+}
+
+/// Fill a verb's slots from `toks` starting from `start` (a snapshot, or empty), WITHOUT
+/// requiring every slot to be filled and WITHOUT sampling `random`. Builds a curry at
+/// `maak`-time and fires it at the call site (LANGUAGE.md §14). A token that would fill an
+/// already-filled slot is "leftover" (nothing is silently overwritten); `random` is a hard
+/// error — a curried random would freeze a single draw, which is the snapshot trap §14 forbids.
+/// `toks` may include the verb token (it is skipped).
+pub fn resolve_into(
+    sig: &VerbSig,
+    toks: &[Token],
+    env: &Env,
+    start: SlotValues,
+    line: u32,
+) -> Result<SlotValues, SchildpadError> {
+    let mut sv = start;
+    let mut getal_toks: Vec<Token> = Vec::new();
+    let wants = |t: Type| sig.slots.contains(&t);
+    let leftover = |t: &Token| err(line, ErrorKind::UnconsumedTokens { leftover: expr::tok_text(&t.kind) });
+
+    for t in toks {
+        match &t.kind {
+            Tok::Verb(_) => continue,
+            Tok::Number(_) | Tok::Op(_) | Tok::LParen | Tok::RParen => getal_toks.push(t.clone()),
+            Tok::Random => return Err(err(line, ErrorKind::CurriedRandom { verb: sig.name.to_string() })),
+            Tok::Const(c) => match vocab::constant(c) {
+                Some(ConstVal::Draai(d)) if wants(Type::Draairichting) => {
+                    if sv.draai.is_some() {
+                        return Err(leftover(t));
+                    }
+                    sv.draai = Some(d);
+                }
+                _ => return Err(leftover(t)),
+            },
+            Tok::Colour(col) if wants(Type::Kleur) => {
+                if sv.kleur.is_some() {
+                    return Err(leftover(t));
+                }
+                sv.kleur = Some(col);
+            }
+            Tok::Name(raw) => {
+                let r = resolve_name(raw, env, line)?;
+                match env.get(&r.name) {
+                    None => {
+                        return Err(if r.built {
+                            err(line, ErrorKind::DynamicNameNotFound { full: r.name, prefix: r.prefix, var: r.var })
+                        } else {
+                            err(line, ErrorKind::UnknownNameTurtleHint { name: r.name })
+                        })
+                    }
+                    Some(b) => match b.ty {
+                        Type::Schildpad => {
+                            if sv.schildpad.is_some() {
+                                return Err(leftover(t));
+                            }
+                            if let Value::Schildpad(id) = b.value {
+                                sv.schildpad = Some(id);
+                            }
+                        }
+                        Type::Draairichting if wants(Type::Draairichting) => {
+                            if sv.draai.is_some() {
+                                return Err(leftover(t));
+                            }
+                            if let Value::Draairichting(d) = b.value {
+                                sv.draai = Some(d);
+                            }
+                        }
+                        Type::Getal if wants(Type::Getal) => getal_toks.push(t.clone()),
+                        other => {
+                            return Err(err(
+                                line,
+                                ErrorKind::WrongTypeForVerb { name: r.name, ty: other.nl().to_string(), verb: sig.name.to_string() },
+                            ))
+                        }
+                    },
+                }
+            }
+            _ => return Err(leftover(t)),
+        }
+    }
+
+    if !getal_toks.is_empty() {
+        if !wants(Type::Getal) || sv.getal.is_some() {
+            return Err(err(line, ErrorKind::UnconsumedTokens { leftover: expr::tok_text(&getal_toks[0].kind) }));
+        }
+        let v = expr::eval(&getal_toks, env, line)?;
+        sv.getal = Some(as_num(&v).ok_or_else(|| {
+            err(line, ErrorKind::TypeMismatch { wanted: "getal".to_string(), got: v.type_of().nl().to_string() })
+        })?);
     }
     Ok(sv)
 }

@@ -65,6 +65,10 @@ mod tests {
             .collect()
     }
 
+    fn has_plot_colour(events: &[Event], colour: &str) -> bool {
+        events.iter().any(|e| matches!(e, Event::Draw(DrawOp::Plot { colour: c, .. }) if *c == colour))
+    }
+
     #[test]
     fn canonical_first_program_runs_clean() {
         let (events, err) = run("maak pietje schildpad\nvooruit 100 pietje\ndraai links pietje\nvooruit 100 pietje");
@@ -226,6 +230,64 @@ mod tests {
         let once = run("maak p schildpad\nvooruit 10 p");
         assert!(r.1.is_none(), "{:?}", r.1);
         assert_eq!(plots(&r.0), plots(&once.0));
+    }
+
+    // ---- #24: curry-named functions (LANGUAGE.md §14) -------------------------
+
+    #[test]
+    fn curry_pen_fills_remaining_turtle_slot() {
+        let (events, err) = run("maak roodpen = pen rood\nmaak p schildpad\nroodpen p\nvooruit 10 p");
+        assert!(err.is_none(), "{err:?}");
+        assert!(has_plot_colour(&events, "rood"), "the curry should have set the pen red");
+    }
+
+    #[test]
+    fn curry_distance_matches_direct_verb() {
+        let curried = run("maak stap = vooruit 50\nmaak p schildpad\nstap p");
+        let direct = run("maak p schildpad\nvooruit 50 p");
+        assert!(curried.1.is_none(), "{:?}", curried.1);
+        assert_eq!(plots(&curried.0), plots(&direct.0));
+    }
+
+    #[test]
+    fn curry_invocation_is_order_free() {
+        let a = run("maak rp = pen rood\nmaak p schildpad\nrp p\nvooruit 5 p");
+        let b = run("maak rp = pen rood\nmaak p schildpad\np rp\nvooruit 5 p");
+        assert!(a.1.is_none() && b.1.is_none(), "a={:?} b={:?}", a.1, b.1);
+        assert!(has_plot_colour(&a.0, "rood") && has_plot_colour(&b.0, "rood"));
+    }
+
+    #[test]
+    fn curry_snapshots_at_maak_time() {
+        // `maak hoek = draai schuin` freezes schuin's value; later changing schuin must NOT
+        // change the action (no late binding — the cardinal sin of §1).
+        let mut e = Engine::new();
+        e.load("maak schuin draairichting = 45\nmaak hoek = draai schuin\nschuin = 90\nmaak p schildpad\nhoek p");
+        while !e.done() {
+            e.step();
+        }
+        let sp = e.sprites();
+        assert_eq!(sp.len(), 1);
+        assert_eq!(sp[0].heading_deg, 45, "curry must freeze schuin at maak-time, not re-read 90");
+    }
+
+    #[test]
+    fn curry_random_is_a_hard_error() {
+        let (_, err) = run("maak hoe_ver = vooruit random");
+        let e = err.unwrap();
+        assert!(e.contains("los in je lus"), "{e}");
+    }
+
+    #[test]
+    fn curry_play_is_rejected() {
+        let (_, err) = run("maak liedje = play do");
+        assert!(err.unwrap().contains("play"));
+    }
+
+    #[test]
+    fn curry_missing_turtle_errors() {
+        let (_, err) = run("maak roodpen = pen rood\nroodpen");
+        assert!(err.unwrap().contains("schildpad"));
     }
 
     #[test]

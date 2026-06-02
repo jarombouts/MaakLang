@@ -345,6 +345,10 @@ impl Engine {
                         return self.do_verb(name, toks, line, out);
                     }
                 }
+                // a curry invocation? (a name bound to a partial-verb value, fired with the rest)
+                if let Some((fname, pf)) = self.find_frame(toks) {
+                    return self.do_invoke(&fname, pf, toks, line, out);
+                }
                 Err(err(line, ErrorKind::NotAStatement { src: src.to_string() }))
             }
         }
@@ -381,10 +385,10 @@ impl Engine {
                     ty = Some(*tt);
                 }
                 Tok::Name(raw) => {
-                    if name_raw.is_some() {
+                    if let Some(existing) = name_raw.as_ref() {
                         return Err(err(line, ErrorKind::MaakNotUnderstood {
                             src: joined_src(toks),
-                            name: name_raw.unwrap(),
+                            name: existing.clone(),
                         }));
                     }
                     name_raw = Some(raw.clone());
@@ -413,6 +417,26 @@ impl Engine {
         };
         let r = resolve_name(&raw, &self.env, line)?;
         let name = r.name;
+
+        // curry-named function (LANGUAGE.md §14): an RHS that contains a verb token is a
+        // partially-applied verb value, not an arithmetic expression. Snapshot its slots now.
+        if let Some(vals) = value_toks {
+            if let Some(vname) = vals.iter().find_map(|t| match t.kind {
+                Tok::Verb(n) => Some(n),
+                _ => None,
+            }) {
+                let sig = vocab::verb(vname).expect("verb in table");
+                if sig.slots.contains(&Type::Deuntje) {
+                    return Err(err(line, ErrorKind::CurryPlay)); // `play` can't be half-stored
+                }
+                if let Some(want) = ty {
+                    return Err(err(line, ErrorKind::TypeMismatch { wanted: want.nl().to_string(), got: "actie".to_string() }));
+                }
+                let slots = frame::resolve_into(sig, vals, &self.env, frame::SlotValues::default(), line)?;
+                self.env.set(Binding { ty: Type::Nil, value: Value::Frame(frame::PartialFrame { verb: vname, slots }), name });
+                return Ok(());
+            }
+        }
 
         // ---- bind ----
         match ty {
@@ -548,6 +572,13 @@ impl Engine {
     fn do_verb(&mut self, name: &'static str, toks: &[Token], line: u32, out: &mut Vec<Event>) -> Result<(), SchildpadError> {
         let sig = vocab::verb(name).expect("verb in table");
         let sv = frame::resolve_turtle_verb(sig, toks, &self.env, &mut self.rng, line)?;
+        self.apply_verb_effect(name, &sv, out);
+        Ok(())
+    }
+
+    /// Run a turtle verb's effect from a fully-resolved set of slots. Shared by direct verb
+    /// statements (`do_verb`) and curry invocation (`do_invoke`, §14).
+    fn apply_verb_effect(&mut self, name: &str, sv: &frame::SlotValues, out: &mut Vec<Event>) {
         let id = sv.schildpad.expect("schildpad slot verified");
         match name {
             "vooruit" | "achteruit" => {
@@ -570,6 +601,38 @@ impl Engine {
             "penomlaag" => self.turtles[id].pen_down = true,
             _ => {}
         }
+    }
+
+    /// Find a name token bound to a curry (partial-verb) value, so a statement like `roodpen
+    /// pietje` can fire it. Plain identifiers only; the frame name is never dynamic (§14).
+    fn find_frame(&self, toks: &[Token]) -> Option<(String, frame::PartialFrame)> {
+        for t in toks {
+            if let Tok::Name(raw) = &t.kind {
+                if !raw.contains('\'') {
+                    if let Some(b) = self.env.get(raw) {
+                        if let Value::Frame(pf) = &b.value {
+                            return Some((b.name.clone(), pf.clone()));
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Fire a curry: fill its remaining slots from the call-site tokens (everything but the
+    /// curry's own name, in any order), then run the verb effect. Snapshot slots cannot be
+    /// overwritten — a duplicate is "leftover", not a silent replacement (§14).
+    fn do_invoke(&mut self, fname: &str, pf: frame::PartialFrame, toks: &[Token], line: u32, out: &mut Vec<Event>) -> Result<(), SchildpadError> {
+        let sig = vocab::verb(pf.verb).expect("verb in table");
+        let call: Vec<Token> = toks
+            .iter()
+            .filter(|t| !matches!(&t.kind, Tok::Name(raw) if raw.eq_ignore_ascii_case(fname)))
+            .cloned()
+            .collect();
+        let sv = frame::resolve_into(sig, &call, &self.env, pf.slots.clone(), line)?;
+        frame::ensure_full(sig, &sv, line)?;
+        self.apply_verb_effect(pf.verb, &sv, out);
         Ok(())
     }
 
