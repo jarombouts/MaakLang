@@ -1,4 +1,4 @@
-# Schildpad — Build Roadmap
+# Build Roadmap
 
 The order of work, phased so each phase produces something testable and nothing is built
 before the thing it depends on. Phases map 1:1 onto GitHub milestones; the checklist items
