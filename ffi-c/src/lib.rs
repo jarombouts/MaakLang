@@ -11,6 +11,10 @@
 //!   {"t":"error","line":4,"msg":"…"}
 //!   {"t":"done"}
 //!
+//! Syntax-highlight spans are a separate, stateless call (no engine needed):
+//!   schildpad_highlight("maak pietje schildpad")
+//!     → [{"line":1,"col":0,"len":4,"kind":"keyword","ok":true}, …]
+//!
 //! JSON is built by hand here so `core` stays dependency-free (no serde) and the schema is one
 //! we control for the Swift side.
 
@@ -18,6 +22,7 @@ use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int};
 
 use schildpad_core::command::{AudioCmd, DrawOp, Sprite, WrapMode};
+use schildpad_core::highlight::{self, Span};
 use schildpad_core::{Engine, Event};
 
 // ---- JSON helpers ----------------------------------------------------------------
@@ -114,6 +119,21 @@ fn audio_json(a: &AudioCmd, s: &mut String) {
         s.push_str(&format!("{{\"hz\":{hz},\"beats\":{},\"osc\":\"{}\",\"env\":\"{}\"}}", v.beats, v.osc, v.env));
     }
     s.push_str("]}");
+}
+
+pub fn spans_to_json(spans: &[Span]) -> String {
+    let mut s = String::from("[");
+    for (i, sp) in spans.iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        s.push_str(&format!(
+            "{{\"line\":{},\"col\":{},\"len\":{},\"kind\":\"{}\",\"ok\":{}}}",
+            sp.line, sp.col, sp.len, sp.kind.tag(), sp.ok
+        ));
+    }
+    s.push(']');
+    s
 }
 
 pub fn sprites_to_json(sprites: &[Sprite]) -> String {
@@ -222,6 +242,15 @@ pub unsafe extern "C" fn schildpad_current_line(p: *mut Engine) -> c_int {
     p.as_ref().and_then(|e| e.current_line()).map(|l| l as c_int).unwrap_or(-1)
 }
 
+/// Syntax-highlight `src` into colour spans (stateless; no engine handle needed). Returns a
+/// JSON array the caller must free with `schildpad_string_free`.
+///
+/// # Safety: `src` must be a valid C string or null.
+#[no_mangle]
+pub unsafe extern "C" fn schildpad_highlight(src: *const c_char) -> *mut c_char {
+    to_c(spans_to_json(&highlight::highlight(cstr(src))))
+}
+
 /// # Safety: `s` must be a pointer returned by one of the JSON-returning functions.
 #[no_mangle]
 pub unsafe extern "C" fn schildpad_string_free(s: *mut c_char) {
@@ -249,6 +278,17 @@ mod tests {
         // sprite snapshot
         let sj = sprites_to_json(&e.sprites());
         assert!(sj.contains("\"penDown\":true"));
+    }
+
+    #[test]
+    fn highlight_json_schema() {
+        let json = spans_to_json(&highlight::highlight("maak pietje schildpad"));
+        assert!(json.starts_with('['));
+        assert!(json.contains("\"kind\":\"keyword\""));
+        assert!(json.contains("\"kind\":\"name\""));
+        assert!(json.contains("\"kind\":\"type\""));
+        assert!(json.contains("\"line\":1"));
+        assert!(json.contains("\"ok\":true"));
     }
 
     #[test]

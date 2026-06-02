@@ -16,6 +16,7 @@ pub mod error;
 pub mod expr;
 pub mod fixed;
 pub mod frame;
+pub mod highlight;
 pub mod lexer;
 pub mod resolve;
 pub mod rng;
@@ -25,6 +26,7 @@ pub mod vocab;
 pub use command::{AudioCmd, DrawOp, Event, Sprite, Voice, WrapMode};
 pub use engine::Engine;
 pub use error::{ErrorKind, SchildpadError};
+pub use highlight::{highlight, Kind, Span};
 pub use value::Value;
 pub use vocab::Type;
 
@@ -288,6 +290,32 @@ mod tests {
     fn curry_missing_turtle_errors() {
         let (_, err) = run("maak roodpen = pen rood\nroodpen");
         assert!(err.unwrap().contains("schildpad"));
+    }
+
+    // ---- #49: syntax-highlight spans (DESIGN_BRIEF §3) ------------------------
+
+    #[test]
+    fn highlight_classifies_tokens_by_kind() {
+        use crate::highlight::{highlight, Kind};
+        let spans = highlight("maak pietje schildpad\nvooruit 100 pietje");
+        // line 1: keyword name type
+        let l1: Vec<_> = spans.iter().filter(|s| s.line == 1).map(|s| s.kind).collect();
+        assert_eq!(l1, alloc::vec![Kind::Keyword, Kind::Name, Kind::Type]);
+        // line 2: verb number name
+        let l2: Vec<_> = spans.iter().filter(|s| s.line == 2).map(|s| s.kind).collect();
+        assert_eq!(l2, alloc::vec![Kind::Verb, Kind::Number, Kind::Name]);
+        // first token spans cols 0..4 on line 1
+        let first = &spans[0];
+        assert_eq!((first.col, first.len), (0, 4));
+        assert!(spans.iter().all(|s| s.ok));
+    }
+
+    #[test]
+    fn highlight_marks_suspect_tokens() {
+        use crate::highlight::{highlight, Kind};
+        let spans = highlight("print \"hoi");
+        let s = spans.iter().find(|s| s.kind == Kind::Text).unwrap();
+        assert!(!s.ok, "an unclosed string must be marked suspect");
     }
 
     #[test]
