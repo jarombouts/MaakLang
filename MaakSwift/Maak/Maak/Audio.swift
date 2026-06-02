@@ -17,12 +17,15 @@ struct SynthVoice {
 final class Synth {
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
-    private let sampleRate = 44_100.0
+    // Mono float format, pinned on the player→mixer connection so a mono buffer never hits a
+    // stereo output (channelCount mismatch = a hard AVFoundation crash). The mixer up-converts.
+    private let format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1)!
+    private var sampleRate: Double { format.sampleRate }
     private var started = false
 
     init() {
         engine.attach(player)
-        engine.connect(player, to: engine.mainMixerNode, format: nil)
+        engine.connect(player, to: engine.mainMixerNode, format: format)
     }
 
     /// Lazily start the engine on first sound, so a silent program never grabs the audio session.
@@ -67,7 +70,6 @@ final class Synth {
             }
         }
         guard !samples.isEmpty,
-              let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1),
               let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count))
         else { return }
 
