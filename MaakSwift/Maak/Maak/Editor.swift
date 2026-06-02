@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import Combine
+import SchildpadFFI
 
 /// Lets the on-screen palette insert text at the editor's cursor.
 final class EditorBridge: ObservableObject {
@@ -23,13 +24,17 @@ final class EditorBridge: ObservableObject {
 
 /// A real UITextView so we get a cursor the palette can insert at (a plain SwiftUI TextEditor
 /// gives no cursor access). Monospaced, no autocorrect/smart-quotes — a child types real text.
+/// Live syntax highlighting (#49) and a current-line band (#51) layer on top.
 struct CodeEditor: UIViewRepresentable {
     @Binding var text: String
     let bridge: EditorBridge
+    var currentLine: Int? = nil
+
+    private static let baseFont = UIFont.monospacedSystemFont(ofSize: 22, weight: .regular)
 
     func makeUIView(context: Context) -> UITextView {
         let tv = UITextView()
-        tv.font = .monospacedSystemFont(ofSize: 22, weight: .regular)
+        tv.font = Self.baseFont
         tv.backgroundColor = UIColor(white: 0.08, alpha: 1)
         tv.textColor = .white
         tv.tintColor = UIColor(red: 0.2, green: 0.85, blue: 0.4, alpha: 1)
@@ -41,21 +46,104 @@ struct CodeEditor: UIViewRepresentable {
         tv.keyboardType = .asciiCapable
         tv.textContainerInset = UIEdgeInsets(top: 12, left: 8, bottom: 12, right: 8)
         tv.delegate = context.coordinator
+        // current-line band, translucent so the glyphs stay readable (joint attention, #51)
+        let band = context.coordinator.band
+        band.backgroundColor = UIColor(red: 0.30, green: 0.85, blue: 0.45, alpha: 0.14)
+        band.layer.cornerRadius = 4
+        band.isHidden = true
+        tv.addSubview(band)
         tv.text = text
+        Self.renderHighlight(tv)
         bridge.textView = tv
         return tv
     }
 
     func updateUIView(_ tv: UITextView, context: Context) {
-        if tv.text != text { tv.text = text }
+        if tv.text != text {
+            tv.text = text
+            Self.renderHighlight(tv)
+        }
+        positionBand(tv, band: context.coordinator.band)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     final class Coordinator: NSObject, UITextViewDelegate {
         let parent: CodeEditor
+        let band = UIView()
         init(_ p: CodeEditor) { parent = p }
-        func textViewDidChange(_ tv: UITextView) { parent.text = tv.text }
+        func textViewDidChange(_ tv: UITextView) {
+            parent.text = tv.text
+            CodeEditor.renderHighlight(tv)
+        }
+    }
+
+    // ---- syntax highlighting (#49): per-token colours from the core's classifier ----
+    static func renderHighlight(_ tv: UITextView) {
+        let sel = tv.selectedRange
+        tv.attributedText = attributed(tv.text ?? "")
+        tv.selectedRange = sel
+        tv.typingAttributes = [.font: baseFont, .foregroundColor: UIColor.white]
+    }
+
+    static func attributed(_ text: String) -> NSAttributedString {
+        let out = NSMutableAttributedString(string: text, attributes: [
+            .font: baseFont,
+            .foregroundColor: UIColor.white,
+        ])
+        // utf16 start offset of each line (spans are per-line, columns in characters)
+        let lines = text.components(separatedBy: "\n")
+        var lineStart = [Int](); var acc = 0
+        for ln in lines { lineStart.append(acc); acc += (ln as NSString).length + 1 }
+
+        guard let ptr = text.withCString({ schildpad_highlight($0) }) else { return out }
+        defer { schildpad_string_free(ptr) }
+        guard let data = String(cString: ptr).data(using: .utf8),
+              let spans = try? JSONDecoder().decode([HighlightSpan].self, from: data) else { return out }
+
+        for s in spans {
+            let li = s.line - 1
+            guard li >= 0, li < lines.count else { continue }
+            let lineNS = lines[li] as NSString
+            let start = min(s.col, lineNS.length)
+            let length = min(s.len, lineNS.length - start)
+            guard length > 0 else { continue }
+            let range = NSRange(location: lineStart[li] + start, length: length)
+            let word = lineNS.substring(with: NSRange(location: start, length: length))
+            out.addAttribute(.foregroundColor, value: MaakColors.uiColor(s.kind, word: word), range: range)
+            if !s.ok { // soft, non-alarming mark of a lexically suspect token
+                out.addAttribute(.underlineStyle, value: NSUnderlineStyle.thick.rawValue, range: range)
+                out.addAttribute(.underlineColor, value: UIColor(red: 1, green: 0.7, blue: 0.3, alpha: 0.8), range: range)
+            }
+        }
+        return out
+    }
+
+    // ---- current-line band (#51) ----
+    private func positionBand(_ tv: UITextView, band: UIView) {
+        guard let line = currentLine, let rect = Self.lineRect(tv, line: line) else {
+            band.isHidden = true
+            return
+        }
+        band.isHidden = false
+        band.frame = rect
+    }
+
+    static func lineRect(_ tv: UITextView, line: Int) -> CGRect? {
+        let text = tv.text ?? ""
+        let lines = text.components(separatedBy: "\n")
+        let li = line - 1
+        guard li >= 0, li < lines.count else { return nil }
+        var acc = 0
+        for i in 0..<li { acc += (lines[i] as NSString).length + 1 }
+        let lineNS = lines[li] as NSString
+        let charRange = NSRange(location: acc, length: lineNS.length)
+        let glyphRange = tv.layoutManager.glyphRange(forCharacterRange: charRange, actualCharacterRange: nil)
+        var rect = tv.layoutManager.boundingRect(forGlyphRange: glyphRange, in: tv.textContainer)
+        if rect.height < 1 { rect.size.height = baseFont.lineHeight } // empty line still gets a band
+        rect.origin.x = 0
+        rect.size.width = tv.bounds.width
+        return rect.offsetBy(dx: tv.textContainerInset.left, dy: tv.textContainerInset.top)
     }
 }
 
@@ -127,12 +215,15 @@ private struct WordPill: View {
     let word: String
     let action: () -> Void
     var body: some View {
-        let colour = Palette.isColour(word)
+        // same colour-by-kind scheme as the editor (#50): a pill matches its token's colour.
+        let kind = MaakColors.classify(word)
+        let tint = MaakColors.color(kind, word: word)
+        let opacity: Double = kind == "colour" ? 0.55 : (kind == "name" ? 0.16 : 0.28)
         Button(action: action) {
             Text(word)
                 .font(.system(.body, design: .monospaced))
                 .padding(.horizontal, 14).frame(minHeight: 40)
-                .background(colour ? Palette.color(word).opacity(0.55) : Color(white: 0.17))
+                .background(tint.opacity(opacity))
                 .cornerRadius(9)
         }
         .buttonStyle(.plain).foregroundStyle(.white)

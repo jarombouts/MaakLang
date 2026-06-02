@@ -45,7 +45,7 @@ struct ContentView: View {
             }
             .padding(12)
 
-            CodeEditor(text: $sp.program, bridge: bridge)
+            CodeEditor(text: $sp.program, bridge: bridge, currentLine: sp.currentLine)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color(white: 0.08))
 

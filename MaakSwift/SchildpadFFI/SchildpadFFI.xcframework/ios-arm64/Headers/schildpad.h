@@ -28,6 +28,11 @@ char *schildpad_sprites(SchildpadEngine *engine);
 bool schildpad_done(SchildpadEngine *engine);
 int32_t schildpad_current_line(SchildpadEngine *engine); /* -1 if none */
 
+/* Stateless syntax highlighting: classify every token in src into colour kinds.
+   Returns a JSON array [{"line":1,"col":0,"len":4,"kind":"keyword","ok":true}, ...].
+   Free with schildpad_string_free. No engine handle needed. */
+char *schildpad_highlight(const char *src);
+
 void schildpad_string_free(char *s);
 
 #endif /* SCHILDPAD_H */

@@ -15,6 +15,15 @@ struct RawEvent: Decodable {
     var colour: String?
     var mode: String?
     var msg: String?
+    var tempo: Int?
+    var voices: [RawVoice]?
+}
+
+struct RawVoice: Decodable {
+    var hz: Float?      // null = a rest (stilte)
+    var beats: Int
+    var osc: String
+    var env: String
 }
 
 struct SpriteSnapshot: Decodable, Identifiable {
@@ -105,6 +114,7 @@ final class Schildpad: ObservableObject {
 
     let cols = 40, rows = 30
     let fb: Framebuffer
+    private let synth = Synth()
     private var engine: OpaquePointer?
     private var timer: Timer?
 
@@ -144,6 +154,7 @@ final class Schildpad: ObservableObject {
     func reset() {
         timer?.invalidate(); timer = nil
         transport = .idle
+        synth.stop()
         apply(schildpad_reset(engine))
         refreshSprites()
         currentLine = nil
@@ -194,7 +205,12 @@ final class Schildpad: ObservableObject {
             if let c = e.col, let r = e.row { fb.text(col: c, row: r, e.text ?? "", Palette.rgba(e.colour ?? "wit")) }
         case "error": errorText = e.msg; currentLine = e.line
         case "done": break
-        case "audio", "wrap": break // host audio synth comes later
+        case "audio":
+            if let vs = e.voices {
+                let voices = vs.map { SynthVoice(hz: $0.hz, beats: $0.beats, osc: $0.osc, env: $0.env) }
+                synth.play(voices, tempoBPM: e.tempo ?? 120)
+            }
+        case "wrap": break
         default: break
         }
     }
